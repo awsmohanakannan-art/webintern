@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 50" width="240" height="50">
+  <g transform="translate(10, 8)">
+    <!-- Graduation Cap Icon -->
+    <path d="M16 4L2 11L16 18L30 11L16 4Z" fill="#2E7DFF"/>
+    <path d="M7 13.5V20.5C7 22.5 11 24.5 16 24.5C21 24.5 25 22.5 25 20.5V13.5" stroke="#0B3D91" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <path d="M27 12.5V20" stroke="#2E7DFF" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="27" cy="21" r="1.5" fill="#2E7DFF"/>
+  </g>
+  <text x="48" y="32" font-family="'Inter', system-ui, -apple-system, sans-serif" font-size="28" font-weight="800" fill="#2E7DFF" letter-spacing="-0.5">web</text>
+  <text x="106" y="32" font-family="'Inter', system-ui, -apple-system, sans-serif" font-size="28" font-weight="900" fill="#082B66" letter-spacing="-0.5">intern</text>
+</svg>
