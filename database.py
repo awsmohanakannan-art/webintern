@@ -4,6 +4,7 @@ import json
 import os
 import bcrypt
 from config import Config
+from seed_all_database import SECTORS_DATA, slugify
 
 def get_db_connection():
     conn = sqlite3.connect(Config.SQLITE_DB_PATH)
@@ -37,81 +38,47 @@ def seed_data(cursor):
         (admin_id, "admin@webintern.com", hashed_pwd, "Platform Administrator")
     )
 
-    # Sectors Seed
-    sectors = [
-        ("Full Stack Development", "full-stack-development", "code", "Build modern web apps using HTML, CSS, JavaScript, Python, and cloud tools."),
-        ("Data Science & AI", "data-science-ai", "cpu", "Analyze datasets, build machine learning models, and derive actionable business insights."),
-        ("UI/UX & Product Design", "ui-ux-design", "layout", "Design intuitive interfaces, create interactive wireframes, and run usability tests."),
-        ("Digital Marketing & SEO", "digital-marketing", "trending-up", "Drive brand growth, execute performance campaigns, and master social media strategy.")
-    ]
-    
-    sector_ids = {}
-    for name, slug, icon, desc in sectors:
-        s_id = str(uuid.uuid4())
-        sector_ids[slug] = s_id
+    used_slugs = set()
+
+    for sec_data in SECTORS_DATA:
+        sec_id = str(uuid.uuid4())
         cursor.execute(
             "INSERT INTO sectors (id, name, slug, icon_url, description) VALUES (?, ?, ?, ?, ?)",
-            (s_id, name, slug, icon, desc)
+            (sec_id, sec_data["name"], sec_data["slug"], sec_data["icon"], sec_data["description"])
         )
 
-    # Internships Seed
-    internships = [
-        (
-            sector_ids["full-stack-development"],
-            "Full Stack Web Developer Internship",
-            "full-stack-web-developer",
-            "Master frontend development, Python backend APIs, database management, and cloud deployment in a hands-on 4-week virtual simulation.",
-            "This 4-week Virtual Internship guides you through real-world web application development. You will design responsive user interfaces using HTML5/CSS3/JavaScript, build scalable backend REST APIs with Python Flask, integrate Supabase PostgreSQL databases, and deploy your production web app to cloud hosting platforms.",
-            4, "Virtual", "web-dev-cover.jpg", True
-        ),
-        (
-            sector_ids["data-science-ai"],
-            "Data Analytics & Machine Learning Virtual Internship",
-            "data-analytics-machine-learning",
-            "Work with real-world datasets, build predictive algorithms, and create executive analytics dashboards using Python and pandas.",
-            "Dive deep into data analysis, exploratory data visualization, statistical hypothesis testing, and machine learning models. Over 4 weeks, you will clean raw industry datasets, engineer predictive features, build automated visualization dashboards, and report findings.",
-            4, "Virtual", "data-science-cover.jpg", True
-        ),
-        (
-            sector_ids["ui-ux-design"],
-            "UI/UX Product Design Internship",
-            "ui-ux-product-design",
-            "Design user journeys, create high-fidelity UI prototypes, establish color/typography systems, and perform user research.",
-            "Transform business concepts into high-converting, accessible user interfaces. You will create user personas, wireframe mobile and desktop layouts, establish component design systems, and prototype interactive app flows.",
-            4, "Virtual", "ui-ux-cover.jpg", True
-        ),
-        (
-            sector_ids["digital-marketing"],
-            "Performance Marketing & SEO Internship",
-            "performance-marketing-seo",
-            "Learn digital advertising strategies, content marketing pipelines, Google SEO optimization, and social media analytics.",
-            "Gain practical exposure to growth hacking, search engine optimization, pay-per-click ad campaign management, and digital marketing analytics. Craft copy, analyze conversion metrics, and optimize campaigns.",
-            4, "Virtual", "marketing-cover.jpg", True
-        )
-    ]
+        for idx, title in enumerate(sec_data["internships"]):
+            int_id = str(uuid.uuid4())
+            base_slug = slugify(title)
+            
+            if base_slug in used_slugs:
+                int_slug = f"{sec_data['slug']}-{base_slug}"
+            else:
+                int_slug = base_slug
 
-    internship_ids = {}
-    for sec_id, title, slug, short_desc, full_desc, duration, mode, cover, featured in internships:
-        i_id = str(uuid.uuid4())
-        internship_ids[slug] = i_id
-        cursor.execute(
-            "INSERT INTO internships (id, sector_id, title, slug, short_description, full_description, duration_weeks, mode, cover_image_url, is_featured) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (i_id, sec_id, title, slug, short_desc, full_desc, duration, mode, cover, featured)
-        )
+            used_slugs.add(int_slug)
 
-    # Weekly Tasks for Full Stack Internship
-    fs_tasks = [
-        (1, "Week 1: Responsive UI & Component Design", "Design and develop a responsive landing page following modern UI guidelines.", "Submit a ZIP file containing index.html, main.css, and assets with full mobile responsiveness.", "1. Create HTML structure.\n2. Apply CSS variables & flexbox/grid layout.\n3. Add mobile navigation and smooth animations.\n4. Test cross-browser compatibility.", "Code formatting, responsive breakpoint alignment, color hierarchy compliance."),
-        (2, "Week 2: Backend REST API Construction", "Build a Python Flask REST API with JSON responses and database CRUD operations.", "Upload Python API code files (app.py, routes, schema) along with API test documentation.", "1. Define Flask application blueprints.\n2. Connect to database storage.\n3. Implement authentication & data endpoints.\n4. Handle error states cleanly.", "Clean API routing, proper HTTP status codes, error handling."),
-        (3, "Week 3: Database & Auth Integration", "Integrate user authentication via JWT & email OTP codes with database persistence.", "Submit backend auth module and video demo or screenshot proof of registration/login flow.", "1. Implement OTP generation logic.\n2. Hash credentials securely.\n3. Issue signed JWT tokens.\n4. Add protected route middleware.", "Security of JWT tokens, password/OTP hashing integrity, session management."),
-        (4, "Week 4: Final Platform Deployment & Capstone", "Deploy the full-stack web application to production and submit project documentation.", "Live application deployment URL, source code repository link, and final project report PDF.", "1. Configure environment variables.\n2. Perform end-to-end integration testing.\n3. Deploy frontend and backend.\n4. Write complete README and documentation.", "System functionality, live deployment stability, code documentation quality.")
-    ]
+            short_desc = f"Gain hands-on practical project exposure in {title} through a 4-week structured virtual program."
+            full_desc = f"This 4-week Virtual Internship program in {title} provides immersive industry training in {sec_data['name']}. You will complete weekly tasks, receive constructive evaluator feedback, and build a portfolio."
+            is_featured = 1 if idx < 2 else 0
 
-    for week, title, obj, deliv, steps, criteria in fs_tasks:
-        cursor.execute(
-            "INSERT INTO internship_tasks (id, internship_id, week_number, title, objective, deliverables, key_steps, evaluation_criteria) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (str(uuid.uuid4()), internship_ids["full-stack-web-developer"], week, title, obj, deliv, steps, criteria)
-        )
+            cursor.execute(
+                "INSERT INTO internships (id, sector_id, title, slug, short_description, full_description, duration_weeks, mode, cover_image_url, is_featured) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (int_id, sec_id, title, int_slug, short_desc, full_desc, 4, 'Virtual', f"{int_slug}-cover.jpg", is_featured)
+            )
+
+            tasks = [
+                (1, f"Week 1: Fundamentals & Research in {title.replace(' Internship', '')}", "Analyze industry standards and submit preliminary research report.", "Research Report PDF / Documentation Link"),
+                (2, f"Week 2: Practical Module Execution", "Execute core project tasks and build initial deliverables.", "Project Deliverable Files / Code Repository"),
+                (3, f"Week 3: Advanced Optimization & Testing", "Refine project execution, fix issues, and implement evaluator feedback.", "Updated Deliverable & Testing Logs"),
+                (4, f"Week 4: Final Capstone Submission", "Finalize project documentation and prepare capstone submission for certification.", "Final Capstone Portfolio PDF & Video Demo")
+            ]
+
+            for week, task_title, obj, deliv in tasks:
+                cursor.execute(
+                    "INSERT INTO internship_tasks (id, internship_id, week_number, title, objective, deliverables, key_steps, evaluation_criteria) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (str(uuid.uuid4()), int_id, week, task_title, obj, deliv, "1. Read task brief.\n2. Complete module steps.\n3. Upload deliverable link.", "Quality of deliverable, adherence to timeline, technical completeness.")
+                )
 
     # Site Stats Seed (Section 4A 2x2 Grid)
     stats = [
@@ -126,7 +93,7 @@ def seed_data(cursor):
             (str(uuid.uuid4()), label, val, icon, order)
         )
 
-    # Products Seed (Certificate Upgrade)
+    # Product Seed
     cursor.execute(
         "INSERT INTO products (id, name, description, price_inr, is_active) VALUES (?, ?, ?, ?, ?)",
         (str(uuid.uuid4()), "Verified & Printed Certificate Upgrade", "Get an official tamper-proof QR-verified digital certificate with optional high-quality physical hardcopy delivery to your doorstep.", 499, True)
