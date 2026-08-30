@@ -14,7 +14,8 @@ def get_sqlite_db_path():
     if is_serverless:
         tmp_db = os.path.join(tempfile.gettempdir(), "webintern.db")
         if os.path.exists(root_db):
-            if not os.path.exists(tmp_db) or os.path.getsize(tmp_db) == 0:
+            root_size = os.path.getsize(root_db)
+            if not os.path.exists(tmp_db) or os.path.getsize(tmp_db) < root_size:
                 try:
                     shutil.copy2(root_db, tmp_db)
                 except Exception as e:
