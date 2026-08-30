@@ -4,6 +4,7 @@ from database import query_db
 sector_bp = Blueprint('sector_bp', __name__)
 
 @sector_bp.route('/api/sectors', methods=['GET'])
+@sector_bp.route('/sectors', methods=['GET'])
 def get_sectors():
     sectors = query_db("SELECT * FROM sectors ORDER BY name ASC")
     for sec in sectors:
@@ -12,6 +13,7 @@ def get_sectors():
     return jsonify({'sectors': sectors}), 200
 
 @sector_bp.route('/api/sectors/<slug>', methods=['GET'])
+@sector_bp.route('/sectors/<slug>', methods=['GET'])
 def get_sector_by_slug(slug):
     sector = query_db("SELECT * FROM sectors WHERE slug = ?", (slug,), one=True)
     if not sector:

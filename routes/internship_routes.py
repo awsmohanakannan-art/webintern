@@ -4,6 +4,7 @@ from database import query_db
 internship_bp = Blueprint('internship_bp', __name__)
 
 @internship_bp.route('/api/internships', methods=['GET'])
+@internship_bp.route('/internships', methods=['GET'])
 def get_internships():
     sector_slug = request.args.get('sector')
     search_query = request.args.get('search')
@@ -63,6 +64,7 @@ def get_internships():
     }), 200
 
 @internship_bp.route('/api/internships/<slug>', methods=['GET'])
+@internship_bp.route('/internships/<slug>', methods=['GET'])
 def get_internship_detail(slug):
     internship = query_db("""
         SELECT i.*, s.name as sector_name, s.slug as sector_slug

@@ -1,5 +1,5 @@
 import os
-from flask import Flask, send_from_directory, jsonify
+from flask import Flask, send_from_directory, jsonify, request
 from flask_cors import CORS
 from config import Config
 from database import init_db
@@ -40,19 +40,34 @@ def create_app():
     # Static file serving routes
     @app.route('/')
     def serve_index():
-        return send_from_directory('static', 'index.html')
+        static_dir = os.path.join(os.path.dirname(__file__), 'static')
+        if os.path.exists(os.path.join(static_dir, 'index.html')):
+            return send_from_directory(static_dir, 'index.html')
+        return jsonify({'message': 'Web Intern API is running'}), 200
 
     @app.route('/<path:path>')
     def serve_static(path):
-        if os.path.exists(os.path.join('static', path)):
-            return send_from_directory('static', path)
-        return send_from_directory('static', 'index.html')
+        static_dir = os.path.join(os.path.dirname(__file__), 'static')
+        target = os.path.join(static_dir, path)
+        if os.path.exists(target) and not os.path.isdir(target):
+            return send_from_directory(static_dir, path)
+        if os.path.exists(os.path.join(static_dir, 'index.html')):
+            return send_from_directory(static_dir, 'index.html')
+        return jsonify({'message': 'Web Intern API is running', 'requested_path': path}), 200
 
     @app.errorhandler(404)
     def not_found(e):
-        if request.path.startswith('/api/'):
-            return jsonify({'error': 'API endpoint not found'}), 404
-        return send_from_directory('static', 'index.html')
+        req_path = request.path if request else ''
+        if req_path.startswith('/api/') or req_path.startswith('/internships') or req_path.startswith('/sectors'):
+            return jsonify({'error': f"API endpoint '{req_path}' not found"}), 404
+        static_dir = os.path.join(os.path.dirname(__file__), 'static')
+        if os.path.exists(os.path.join(static_dir, 'index.html')):
+            return send_from_directory(static_dir, 'index.html')
+        return jsonify({'error': 'Page not found'}), 404
+
+    @app.errorhandler(500)
+    def server_error(e):
+        return jsonify({'error': 'Internal server error', 'details': str(e)}), 500
 
     return app
 
