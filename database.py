@@ -27,10 +27,13 @@ def init_db():
                     cursor.executescript(f.read())
             conn.commit()
 
-            cursor.execute("SELECT COUNT(*) FROM sectors")
-            if cursor.fetchone()[0] == 0:
-                seed_data(cursor)
-                conn.commit()
+        # Always check if data is seeded (sectors table is empty), and seed if needed
+        cursor.execute("SELECT COUNT(*) FROM sectors")
+        sector_count = cursor.fetchone()[0]
+        
+        if sector_count == 0:
+            seed_data(cursor)
+            conn.commit()
 
         conn.close()
     except Exception as e:
