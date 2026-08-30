@@ -4,10 +4,22 @@ const DetailView = {
     const container = document.getElementById('app-view');
     if (!container) return;
 
-    container.innerHTML = `<div class="container section-padding" style="text-align:center;">Loading internship details...</div>`;
+    container.innerHTML = `
+      <section style="background: linear-gradient(135deg, var(--color-blue-dark) 0%, var(--color-primary-blue) 100%); color: var(--color-white); padding: 48px 0;">
+        <div class="container">
+          <div style="height: 16px; background: rgba(255,255,255,0.2); width: 25%; border-radius: 4px; margin-bottom: 16px;"></div>
+          <div style="height: 36px; background: rgba(255,255,255,0.3); width: 60%; border-radius: 6px; margin-bottom: 16px;"></div>
+          <div style="height: 20px; background: rgba(255,255,255,0.2); width: 80%; border-radius: 4px;"></div>
+        </div>
+      </section>
+      <div class="container section-padding" style="text-align:center; color: var(--color-gray-text);">Loading internship program details...</div>
+    `;
 
     try {
       const res = await API.request(`/api/internships/${slug}`);
+      if (!res || !res.internship) {
+        throw new Error("Internship program data not found.");
+      }
       const item = res.internship;
 
       container.innerHTML = `
@@ -129,7 +141,16 @@ const DetailView = {
 
       if (window.feather) feather.replace();
     } catch (e) {
-      container.innerHTML = `<div class="container section-padding" style="text-align:center;">Failed to load internship details: ${e.message}</div>`;
+      container.innerHTML = `
+        <div class="container section-padding" style="text-align:center; max-width: 600px; margin: 40px auto;">
+          <div style="background: #FEF2F2; border-radius: var(--radius-lg); border: 1px solid #FCA5A5; padding: 40px 20px;">
+            <div style="font-size: 44px; margin-bottom: 12px; color: #EF4444;">⚠️</div>
+            <h3 style="font-size: 22px; color: #991B1B; margin-bottom: 8px;">Program Not Found</h3>
+            <p style="color: #B91C1C; margin-bottom: 24px;">${e.message || 'Unable to retrieve details for this internship program.'}</p>
+            <a href="#/internships" class="btn btn-primary">Browse All Internships</a>
+          </div>
+        </div>
+      `;
     }
   },
 

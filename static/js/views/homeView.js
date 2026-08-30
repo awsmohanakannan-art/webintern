@@ -351,14 +351,23 @@ const HomeView = {
   },
 
   async loadFeatured() {
+    const grid = document.getElementById('home-featured-grid');
+    if (grid) {
+      grid.innerHTML = ExploreView.getSkeletonCardsHTML ? ExploreView.getSkeletonCardsHTML().slice(0, 3) : '<div style="grid-column:1/-1; text-align:center; padding:20px;">Loading featured programs...</div>';
+    }
+
     try {
-      const res = await API.request('/api/internships?featured=true');
-      const grid = document.getElementById('home-featured-grid');
+      const res = await API.request('/api/internships?featured=true&per_page=6');
       if (res.internships && grid) {
+        if (res.internships.length === 0) {
+          grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: 20px; color: var(--color-gray-text);">No featured internships available right now.</div>`;
+          return;
+        }
+
         grid.innerHTML = res.internships.map(item => `
           <div class="card">
             <div class="card-header">
-              <span class="badge-sector">${item.sector_name}</span>
+              <span class="badge-sector">${item.sector_name || 'Virtual Track'}</span>
               <span class="badge-mode">${item.mode || 'Virtual'}</span>
             </div>
             <h3 class="card-title">${item.title}</h3>
@@ -375,7 +384,10 @@ const HomeView = {
         if (window.feather) feather.replace();
       }
     } catch (e) {
-      console.warn("Featured load error:", e);
+      console.warn("Featured load warning:", e);
+      if (grid) {
+        grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: 20px; color: var(--color-gray-text);">Unable to load featured programs.</div>`;
+      }
     }
   },
 
