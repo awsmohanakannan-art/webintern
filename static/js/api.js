@@ -52,10 +52,25 @@ const API = {
 
     try {
       const response = await fetch(endpoint, config);
-      const data = await response.json();
+      const contentType = response.headers.get('content-type') || '';
+      let data;
+
+      if (contentType.includes('application/json')) {
+        data = await response.json();
+      } else {
+        const text = await response.text();
+        if (!response.ok) {
+          throw new Error(`Server Error (${response.status}): ${text.replace(/<[^>]*>?/gm, '').trim().slice(0, 120) || 'Request failed'}`);
+        }
+        try {
+          data = JSON.parse(text);
+        } catch (e) {
+          data = { message: text };
+        }
+      }
 
       if (!response.ok) {
-        throw new Error(data.error || data.message || 'Request failed');
+        throw new Error(data.error || data.message || `Request failed with status ${response.status}`);
       }
       return data;
     } catch (err) {

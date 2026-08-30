@@ -12,22 +12,29 @@ def get_db_connection():
     return conn
 
 def init_db():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    schema_path = os.path.join(os.path.dirname(__file__), "schema.sql")
-    if os.path.exists(schema_path):
-        with open(schema_path, "r", encoding="utf-8") as f:
-            cursor.executescript(f.read())
-    conn.commit()
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Check if sectors table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sectors'")
+        table_exists = cursor.fetchone()
+        
+        if not table_exists:
+            schema_path = os.path.join(os.path.dirname(__file__), "schema.sql")
+            if os.path.exists(schema_path):
+                with open(schema_path, "r", encoding="utf-8") as f:
+                    cursor.executescript(f.read())
+            conn.commit()
 
-    # Check if seed data exists
-    cursor.execute("SELECT COUNT(*) FROM sectors")
-    if cursor.fetchone()[0] == 0:
-        seed_data(cursor)
-        conn.commit()
+            cursor.execute("SELECT COUNT(*) FROM sectors")
+            if cursor.fetchone()[0] == 0:
+                seed_data(cursor)
+                conn.commit()
 
-    conn.close()
+        conn.close()
+    except Exception as e:
+        print(f"Warning: Database init skipped or failed gracefully: {e}")
 
 def seed_data(cursor):
     # Admin Seed
@@ -116,7 +123,6 @@ def query_db(query, args=(), one=False):
     cursor = conn.cursor()
     cursor.execute(query, args)
     rv = cursor.fetchall()
-    conn.commit()
     conn.close()
     return (dict(rv[0]) if rv else None) if one else [dict(r) for r in rv]
 
