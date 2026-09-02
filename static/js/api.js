@@ -1,5 +1,21 @@
-// Web Intern REST API Client Wrapper
+// Web Intern REST API Client Wrapper & Supabase Client Init
 const API = {
+  supabaseClient: null,
+
+  async getSupabase() {
+    if (this.supabaseClient) return this.supabaseClient;
+    try {
+      const config = await this.request('/api/auth/config');
+      if (window.supabase && config.supabase_url && config.supabase_anon_key) {
+        this.supabaseClient = window.supabase.createClient(config.supabase_url, config.supabase_anon_key);
+        return this.supabaseClient;
+      }
+    } catch (e) {
+      console.warn('Failed to initialize Supabase client:', e);
+    }
+    return null;
+  },
+
   getAuthToken() {
     return localStorage.getItem('access_token');
   },

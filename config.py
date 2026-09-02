@@ -34,8 +34,10 @@ class Config:
     SUPABASE_URL = os.getenv("SUPABASE_URL", "")
     SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
     SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
-    SUPABASE_PUBLISHABLE_KEY = os.getenv("SUPABASE_PUBLISHABLE_KEY", "")
-    SUPABASE_SECRET_KEY = os.getenv("SUPABASE_SECRET_KEY", "")
+
+    # Google OAuth credentials (SERVER-SIDE ONLY)
+    GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+    GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 
     # Resend
     RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")

@@ -1,4 +1,38 @@
-// Auth Views Renderer (Register & Login with 2 Separate Checkboxes & OTP Step)
+// Auth Views Renderer (Create Account & Login with Supabase, Email/Password, Google OAuth, Mobile OTP & Profile Completion)
+
+const GOOGLE_BTN_HTML = `
+  <div style="display: flex; align-items: center; margin: 20px 0; text-align: center;">
+    <div style="flex-grow: 1; border-bottom: 1px solid var(--color-border);"></div>
+    <span style="padding: 0 12px; font-size: 13px; color: var(--color-gray-text); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 500;">or</span>
+    <div style="flex-grow: 1; border-bottom: 1px solid var(--color-border);"></div>
+  </div>
+
+  <button type="button" id="google-signin-btn" class="btn btn-full" style="
+    background-color: #FFFFFF;
+    color: #3C4043;
+    border: 1px solid #DADCE0;
+    border-radius: 9999px;
+    font-weight: 600;
+    font-size: 14px;
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    transition: background-color 0.2s, box-shadow 0.2s;
+    cursor: pointer;
+  " onmouseover="this.style.backgroundColor='#F8F9FA'; this.style.boxShadow='0 2px 6px rgba(0,0,0,0.12)';" onmouseout="this.style.backgroundColor='#FFFFFF'; this.style.boxShadow='0 1px 3px rgba(0,0,0,0.08)';">
+    <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+      <path fill="#4285F4" d="M17.64 9.2c0-.74-.06-1.28-.19-1.84H9v3.34h4.96c-.1.83-.64 2.08-1.84 2.92l2.84 2.2c1.7-1.57 2.68-3.88 2.68-6.62z"/>
+      <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.84-2.2c-.76.53-1.78.9-3.12.9-2.38 0-4.41-1.57-5.13-3.72L.97 13.01C2.45 15.96 5.48 18 9 18z"/>
+      <path fill="#FBBC05" d="M3.87 10.8c-.2-.58-.31-1.21-.31-1.8s.11-1.22.31-1.8L.97 4.99C.35 6.22 0 7.6 0 9s.35 2.78.97 4.01l2.9-2.21z"/>
+      <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.59C13.46.89 11.43 0 9 0 5.48 0 2.45 2.04.97 4.99l2.9 2.21C4.59 5.05 6.62 3.58 9 3.58z"/>
+    </svg>
+    <span>Continue with Google</span>
+  </button>
+`;
+
 const AuthViews = {
   renderRegister() {
     const container = document.getElementById('app-view');
@@ -6,27 +40,27 @@ const AuthViews = {
 
     container.innerHTML = `
       <section class="section-padding" style="background-color: var(--color-gray-bg); min-height: calc(100vh - 72px); display: flex; align-items: center; justify-content: center;">
-        <div class="container" style="max-width: 480px;">
+        <div class="container" style="max-width: 500px;">
           <div style="background: var(--color-white); border-radius: var(--radius-lg); padding: 40px 32px; border: 1px solid var(--color-border); box-shadow: var(--shadow-xl);">
             
-            <div style="text-align: center; margin-bottom: 28px;">
+            <div style="text-align: center; margin-bottom: 24px;">
               <img src="/assets/logo.svg" alt="Web Intern" height="36" style="margin: 0 auto 16px auto;" />
               <h1 style="font-size: 26px; color: var(--color-blue-dark); margin-bottom: 6px;">Create your account</h1>
-              <p style="color: var(--color-gray-text); font-size: 14px;">Register to start your free virtual internship.</p>
+              <p style="color: var(--color-gray-text); font-size: 14px;">Register to start your virtual internship program.</p>
             </div>
 
-            <!-- Registration Form Step 1 -->
+            <!-- Step 1: Account Registration Details -->
             <form id="register-form-step1">
               <div class="form-group">
-                <label class="form-label">Full name</label>
+                <label class="form-label">Full Name *</label>
                 <div style="position: relative;">
                   <i data-feather="user" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--color-gray-text); width: 18px;"></i>
-                  <input type="text" id="reg-name" class="form-input" style="padding-left: 42px;" placeholder="Enter your name" required />
+                  <input type="text" id="reg-name" class="form-input" style="padding-left: 42px;" placeholder="John Doe" required />
                 </div>
               </div>
 
               <div class="form-group">
-                <label class="form-label">Email address</label>
+                <label class="form-label">Email Address *</label>
                 <div style="position: relative;">
                   <i data-feather="mail" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--color-gray-text); width: 18px;"></i>
                   <input type="email" id="reg-email" class="form-input" style="padding-left: 42px;" placeholder="you@example.com" required />
@@ -34,69 +68,84 @@ const AuthViews = {
               </div>
 
               <div class="form-group">
-                <label class="form-label">Mobile number *</label>
+                <label class="form-label">Mobile Number *</label>
                 <div style="display: flex; gap: 8px;">
                   <select id="reg-country-code" class="form-input" style="width: 110px; padding: 12px 8px; font-size: 13px;">
                     <option value="+91">+91 — IN</option>
                     <option value="+1">+1 — US</option>
                     <option value="+44">+44 — UK</option>
+                    <option value="+61">+61 — AU</option>
+                    <option value="+971">+971 — AE</option>
                   </select>
                   <div style="position: relative; flex-grow: 1;">
                     <i data-feather="phone" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--color-gray-text); width: 18px;"></i>
-                    <input type="tel" id="reg-phone" class="form-input" style="padding-left: 42px;" placeholder="Enter your mobile number" required />
+                    <input type="tel" id="reg-phone" class="form-input" style="padding-left: 42px;" placeholder="9876543210" required />
                   </div>
                 </div>
               </div>
 
-              <!-- Two Separate Checkboxes -->
-              <div style="margin-bottom: 24px; display: flex; flex-direction: column; gap: 12px;">
-                <!-- Checkbox 1: Required Legal Consent -->
+              <div class="form-group">
+                <label class="form-label">Password *</label>
+                <div style="position: relative;">
+                  <i data-feather="lock" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--color-gray-text); width: 18px;"></i>
+                  <input type="password" id="reg-password" class="form-input" style="padding-left: 42px;" placeholder="Minimum 6 characters" minlength="6" required />
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Confirm Password *</label>
+                <div style="position: relative;">
+                  <i data-feather="lock" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--color-gray-text); width: 18px;"></i>
+                  <input type="password" id="reg-confirm-password" class="form-input" style="padding-left: 42px;" placeholder="Re-enter password" minlength="6" required />
+                </div>
+              </div>
+
+              <div style="margin-bottom: 20px; display: flex; flex-direction: column; gap: 12px;">
                 <label class="checkbox-label">
                   <input type="checkbox" id="reg-terms" required />
-                  <span>I agree to the <a href="#/privacy-policy" target="_blank" style="color: var(--color-accent-blue);">Terms & Conditions</a> and <a href="#/privacy-policy" target="_blank" style="color: var(--color-accent-blue);">Privacy Policy</a></span>
+                  <span>I agree to the <a href="#/privacy-policy" target="_blank" style="color: var(--color-accent-blue);">Terms & Conditions</a> and <a href="#/privacy-policy" target="_blank" style="color: var(--color-accent-blue);">Privacy Policy</a> *</span>
                 </label>
 
-                <!-- Checkbox 2: Optional Marketing Opt-In -->
                 <label class="checkbox-label">
                   <input type="checkbox" id="reg-marketing" />
                   <span>Send me updates, offers and marketing emails</span>
                 </label>
               </div>
 
-              <button type="submit" class="btn btn-outline btn-full btn-lg">
-                <i data-feather="send" style="width: 18px;"></i>
-                Send Verification Code
+              <button type="submit" id="reg-submit-btn" class="btn btn-primary btn-full btn-lg" style="border-radius: 9999px;">
+                Create Account
               </button>
             </form>
 
-            <!-- Registration OTP Step 2 (Initially Hidden) -->
+            <!-- Step 2: Mobile OTP Verification (Initially Hidden) -->
             <form id="register-form-step2" style="display: none;">
-              <p style="font-size: 14px; color: var(--color-gray-text); text-align: center; margin-bottom: 20px;">
-                A 6-digit verification code was sent to <strong id="otp-sent-email-display"></strong>.
-              </p>
+              <div style="text-align: center; margin-bottom: 20px;">
+                <div style="width: 48px; height: 48px; background-color: #EBF3FE; color: var(--color-primary-blue); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 12px auto;">
+                  <i data-feather="shield-check" style="width: 24px; height: 24px;"></i>
+                </div>
+                <h3 style="font-size: 18px; color: var(--color-blue-dark); margin-bottom: 6px;">Verify Mobile Number</h3>
+                <p style="font-size: 14px; color: var(--color-gray-text);">
+                  Enter the 6-digit verification code sent to <strong id="otp-email-display"></strong>.
+                </p>
+              </div>
 
               <div class="form-group">
-                <label class="form-label" style="text-align: center;">Enter 6-Digit Code</label>
                 <input type="text" id="reg-otp-code" class="form-input" placeholder="123456" maxlength="6" style="text-align: center; font-size: 24px; font-weight: 700; letter-spacing: 8px;" required />
               </div>
 
-              <button type="submit" class="btn btn-primary btn-full btn-lg" style="margin-bottom: 12px;">
-                Verify & Complete Registration
+              <button type="submit" id="reg-verify-btn" class="btn btn-primary btn-full btn-lg" style="border-radius: 9999px; margin-bottom: 12px;">
+                Verify & Activate Account
               </button>
-              <button type="button" onclick="AuthViews.renderRegister()" class="btn btn-outline btn-full btn-sm">
-                ← Change Email / Try Again
+              <button type="button" onclick="AuthViews.renderRegister()" class="btn btn-outline btn-full btn-sm" style="border-radius: 9999px;">
+                ← Back / Edit Info
               </button>
             </form>
 
+            ${GOOGLE_BTN_HTML}
+
             <div style="text-align: center; margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--color-border);">
-              <div style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--color-gray-text); margin-bottom: 12px;">
-                <i data-feather="shield" style="width: 14px; color: var(--color-primary-blue);"></i>
-                Secure sign-up · Your data is protected
-              </div>
-              <div>
-                <span style="font-size: 14px; color: var(--color-gray-text);">Already registered? </span>
-                <a href="#/login" style="font-weight: 600; color: var(--color-accent-blue);">Go to Login</a>
-              </div>
+              <span style="font-size: 14px; color: var(--color-gray-text);">Already have an account? </span>
+              <a href="#/login" style="font-weight: 600; color: var(--color-accent-blue);">Sign In</a>
             </div>
 
           </div>
@@ -105,76 +154,101 @@ const AuthViews = {
     `;
 
     if (window.feather) feather.replace();
-
     this.bindRegisterEvents();
+    this.bindGoogleAuthEvent();
   },
 
   bindRegisterEvents() {
     const step1 = document.getElementById('register-form-step1');
     const step2 = document.getElementById('register-form-step2');
+    let registeredUserId = '';
 
     step1?.addEventListener('submit', async (e) => {
       e.preventDefault();
       const name = document.getElementById('reg-name').value.trim();
       const email = document.getElementById('reg-email').value.trim();
       const phone = document.getElementById('reg-phone').value.trim();
+      const countryCode = document.getElementById('reg-country-code').value;
+      const password = document.getElementById('reg-password').value;
+      const confirmPassword = document.getElementById('reg-confirm-password').value;
       const terms = document.getElementById('reg-terms').checked;
+      const marketing = document.getElementById('reg-marketing').checked;
 
+      if (password !== confirmPassword) {
+        Toast.show('Passwords do not match.', 'error');
+        return;
+      }
+
+      if (!terms) {
+        Toast.show('You must agree to the Terms & Conditions.', 'error');
+        return;
+      }
+
+      const submitBtn = document.getElementById('reg-submit-btn');
       try {
-        Toast.show('Sending 6-digit OTP code to email...', 'info');
-        const res = await API.request('/api/auth/register/request-otp', {
+        submitBtn.disabled = true;
+        submitBtn.innerText = 'Creating account...';
+
+        const res = await API.request('/api/auth/register', {
           method: 'POST',
           body: {
             full_name: name,
             email,
             phone,
-            terms_accepted: terms
+            phone_country_code: countryCode,
+            password,
+            confirm_password: confirmPassword,
+            terms_accepted: terms,
+            marketing_opt_in: marketing
           }
         });
 
+        registeredUserId = res.user_id;
         Toast.show(res.message, 'success');
         if (res.dev_otp) {
           Toast.show(`[DEV OTP CODE]: ${res.dev_otp}`, 'info');
         }
 
-        document.getElementById('otp-sent-email-display').innerText = email;
+        document.getElementById('otp-email-display').innerText = email;
         step1.style.display = 'none';
         step2.style.display = 'block';
       } catch (err) {
         Toast.show(err.message, 'error');
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerText = 'Create Account';
       }
     });
 
     step2?.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const name = document.getElementById('reg-name').value.trim();
       const email = document.getElementById('reg-email').value.trim();
-      const phone = document.getElementById('reg-phone').value.trim();
-      const countryCode = document.getElementById('reg-country-code').value;
-      const marketing = document.getElementById('reg-marketing').checked;
       const code = document.getElementById('reg-otp-code').value.trim();
+      const verifyBtn = document.getElementById('reg-verify-btn');
 
       try {
-        Toast.show('Verifying code...', 'info');
-        const res = await API.request('/api/auth/register/verify-otp', {
+        verifyBtn.disabled = true;
+        verifyBtn.innerText = 'Verifying code...';
+
+        const res = await API.request('/api/auth/verify-mobile-otp', {
           method: 'POST',
           body: {
             email,
             code,
-            full_name: name,
-            phone,
-            phone_country_code: countryCode,
-            marketing_opt_in: marketing
+            user_id: registeredUserId
           }
         });
 
         API.setAuthToken(res.token);
         API.setCurrentUser(res.user);
         HeaderComponent.updateAuthState();
-        Toast.show('Account created successfully!', 'success');
+        Toast.show('Account created and verified successfully!', 'success');
         window.location.hash = '#/dashboard';
       } catch (err) {
         Toast.show(err.message, 'error');
+      } finally {
+        verifyBtn.disabled = false;
+        verifyBtn.innerText = 'Verify & Activate Account';
       }
     });
   },
@@ -191,49 +265,40 @@ const AuthViews = {
             <div style="text-align: center; margin-bottom: 28px;">
               <img src="/assets/logo.svg" alt="Web Intern" height="36" style="margin: 0 auto 16px auto;" />
               <h1 style="font-size: 26px; color: var(--color-blue-dark); margin-bottom: 6px;">Welcome back</h1>
-              <p style="color: var(--color-gray-text); font-size: 14px;">Sign in to continue to your account.</p>
+              <p style="color: var(--color-gray-text); font-size: 14px;">Sign in to access your WebIntern dashboard.</p>
             </div>
 
-            <!-- Student OTP Login Step 1 -->
-            <form id="login-form-step1">
+            <!-- Email & Password Login Form -->
+            <form id="login-form">
               <div class="form-group">
-                <label class="form-label">Email address</label>
+                <label class="form-label">Email Address</label>
                 <div style="position: relative;">
                   <i data-feather="mail" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--color-gray-text); width: 18px;"></i>
                   <input type="email" id="login-email" class="form-input" style="padding-left: 42px;" placeholder="you@example.com" required />
                 </div>
               </div>
 
-              <button type="submit" class="btn btn-outline btn-full btn-lg">
-                <i data-feather="send" style="width: 18px;"></i>
-                Send Verification Code
-              </button>
-            </form>
-
-            <!-- Student OTP Login Step 2 -->
-            <form id="login-form-step2" style="display: none;">
-              <p style="font-size: 14px; color: var(--color-gray-text); text-align: center; margin-bottom: 20px;">
-                Enter 6-digit code sent to <strong id="login-otp-email-display"></strong>.
-              </p>
-
               <div class="form-group">
-                <input type="text" id="login-otp-code" class="form-input" placeholder="123456" maxlength="6" style="text-align: center; font-size: 24px; font-weight: 700; letter-spacing: 8px;" required />
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                  <label class="form-label" style="margin-bottom: 0;">Password</label>
+                  <a href="javascript:void(0)" onclick="AuthViews.handleForgotPassword()" style="font-size: 13px; color: var(--color-accent-blue); font-weight: 500;">Forgot password?</a>
+                </div>
+                <div style="position: relative;">
+                  <i data-feather="lock" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--color-gray-text); width: 18px;"></i>
+                  <input type="password" id="login-password" class="form-input" style="padding-left: 42px;" placeholder="Enter your password" required />
+                </div>
               </div>
 
-              <button type="submit" class="btn btn-primary btn-full btn-lg" style="margin-bottom: 12px;">
-                Verify & Sign In
+              <button type="submit" id="login-submit-btn" class="btn btn-primary btn-full btn-lg" style="border-radius: 9999px;">
+                Sign In
               </button>
             </form>
+
+            ${GOOGLE_BTN_HTML}
 
             <div style="text-align: center; margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--color-border);">
-              <div style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--color-gray-text); margin-bottom: 12px;">
-                <i data-feather="shield" style="width: 14px; color: var(--color-primary-blue);"></i>
-                Secure sign-in · Your data is protected
-              </div>
-              <div>
-                <span style="font-size: 14px; color: var(--color-gray-text);">New to Web Intern? </span>
-                <a href="#/register" style="font-weight: 600; color: var(--color-accent-blue);">Create an account</a>
-              </div>
+              <span style="font-size: 14px; color: var(--color-gray-text);">New to Web Intern? </span>
+              <a href="#/register" style="font-weight: 600; color: var(--color-accent-blue);">Create an account</a>
             </div>
 
           </div>
@@ -242,53 +307,37 @@ const AuthViews = {
     `;
 
     if (window.feather) feather.replace();
-
     this.bindLoginEvents();
+    this.bindGoogleAuthEvent();
   },
 
   bindLoginEvents() {
-    const step1 = document.getElementById('login-form-step1');
-    const step2 = document.getElementById('login-form-step2');
+    const form = document.getElementById('login-form');
 
-    step1?.addEventListener('submit', async (e) => {
+    form?.addEventListener('submit', async (e) => {
       e.preventDefault();
       const email = document.getElementById('login-email').value.trim();
+      const password = document.getElementById('login-password').value;
+      const submitBtn = document.getElementById('login-submit-btn');
 
       try {
-        Toast.show('Sending 6-digit OTP code to email...', 'info');
-        const res = await API.request('/api/auth/login/request-otp', {
+        submitBtn.disabled = true;
+        submitBtn.innerText = 'Signing in...';
+
+        const res = await API.request('/api/auth/login', {
           method: 'POST',
-          body: { email }
-        });
-
-        Toast.show(res.message, 'success');
-        if (res.dev_otp) {
-          Toast.show(`[DEV OTP CODE]: ${res.dev_otp}`, 'info');
-        }
-
-        document.getElementById('login-otp-email-display').innerText = email;
-        step1.style.display = 'none';
-        step2.style.display = 'block';
-      } catch (err) {
-        Toast.show(err.message, 'error');
-      }
-    });
-
-    step2?.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const email = document.getElementById('login-email').value.trim();
-      const code = document.getElementById('login-otp-code').value.trim();
-
-      try {
-        Toast.show('Verifying code...', 'info');
-        const res = await API.request('/api/auth/login/verify-otp', {
-          method: 'POST',
-          body: { email, code }
+          body: { email, password }
         });
 
         API.setAuthToken(res.token);
         API.setCurrentUser(res.user);
         HeaderComponent.updateAuthState();
+
+        if (res.user && res.user.profile_complete === false) {
+          this.renderCompleteProfileModal(res.user);
+          return;
+        }
+
         Toast.show('Login successful!', 'success');
 
         const params = new URLSearchParams(window.location.hash.split('?')[1] || '');
@@ -296,7 +345,249 @@ const AuthViews = {
         window.location.hash = redirect ? decodeURIComponent(redirect) : '#/dashboard';
       } catch (err) {
         Toast.show(err.message, 'error');
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerText = 'Sign In';
       }
     });
+  },
+
+  bindGoogleAuthEvent() {
+    const googleBtn = document.getElementById('google-signin-btn');
+    googleBtn?.addEventListener('click', async () => {
+      try {
+        const supabase = await API.getSupabase();
+        if (!supabase) {
+          Toast.show('Supabase authentication client not configured.', 'error');
+          return;
+        }
+
+        const redirectUrl = window.location.origin + '/#/';
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider: 'google',
+          options: {
+            redirectTo: redirectUrl
+          }
+        });
+
+        if (error) throw error;
+      } catch (err) {
+        Toast.show(`Google Sign-In error: ${err.message}`, 'error');
+      }
+    });
+  },
+
+  async checkGoogleOAuthCallback() {
+    try {
+      const supabase = await API.getSupabase();
+      if (!supabase) return;
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session && session.user) {
+        const googleUser = session.user;
+        const res = await API.request('/api/auth/google-sync', {
+          method: 'POST',
+          body: {
+            id: googleUser.id,
+            email: googleUser.email,
+            name: googleUser.user_metadata?.full_name || googleUser.user_metadata?.name || ''
+          }
+        });
+
+        API.setAuthToken(res.token);
+        API.setCurrentUser(res.user);
+        HeaderComponent.updateAuthState();
+
+        if (res.user.profile_complete === false) {
+          this.renderCompleteProfileModal(res.user);
+        } else {
+          Toast.show('Welcome back!', 'success');
+          window.location.hash = '#/dashboard';
+        }
+      }
+    } catch (e) {
+      console.warn('Google OAuth session check:', e);
+    }
+  },
+
+  renderCompleteProfileModal(user) {
+    const container = document.getElementById('app-view');
+    if (!container) return;
+
+    container.innerHTML = `
+      <section class="section-padding" style="background-color: var(--color-gray-bg); min-height: calc(100vh - 72px); display: flex; align-items: center; justify-content: center;">
+        <div class="container" style="max-width: 480px;">
+          <div style="background: var(--color-white); border-radius: var(--radius-lg); padding: 40px 32px; border: 1px solid var(--color-border); box-shadow: var(--shadow-xl);">
+            
+            <div style="text-align: center; margin-bottom: 24px;">
+              <div style="width: 52px; height: 52px; background-color: #EBF3FE; color: var(--color-primary-blue); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 12px auto;">
+                <i data-feather="user-check" style="width: 26px; height: 26px;"></i>
+              </div>
+              <h2 style="font-size: 24px; color: var(--color-blue-dark); margin-bottom: 6px;">Complete Your Profile</h2>
+              <p style="color: var(--color-gray-text); font-size: 14px;">Please provide your mobile number to finalize your account activation.</p>
+            </div>
+
+            <!-- Profile Completion Step 1 -->
+            <form id="complete-profile-step1">
+              <div class="form-group">
+                <label class="form-label">Full Name</label>
+                <input type="text" class="form-input" value="${user.full_name || ''}" readonly style="background-color: var(--color-gray-bg);" />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Email Address</label>
+                <input type="email" class="form-input" value="${user.email || ''}" readonly style="background-color: var(--color-gray-bg);" />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Mobile Number *</label>
+                <div style="display: flex; gap: 8px;">
+                  <select id="complete-country-code" class="form-input" style="width: 110px; padding: 12px 8px; font-size: 13px;">
+                    <option value="+91">+91 — IN</option>
+                    <option value="+1">+1 — US</option>
+                    <option value="+44">+44 — UK</option>
+                  </select>
+                  <div style="position: relative; flex-grow: 1;">
+                    <i data-feather="phone" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--color-gray-text); width: 18px;"></i>
+                    <input type="tel" id="complete-phone" class="form-input" style="padding-left: 42px;" placeholder="9876543210" required />
+                  </div>
+                </div>
+              </div>
+
+              <div style="margin-bottom: 20px; display: flex; flex-direction: column; gap: 12px;">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="complete-terms" required />
+                  <span>I agree to the <a href="#/privacy-policy" target="_blank" style="color: var(--color-accent-blue);">Terms & Conditions</a> and <a href="#/privacy-policy" target="_blank" style="color: var(--color-accent-blue);">Privacy Policy</a> *</span>
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="complete-marketing" />
+                  <span>Send me updates, offers and marketing emails</span>
+                </label>
+              </div>
+
+              <button type="submit" id="complete-send-otp-btn" class="btn btn-primary btn-full btn-lg" style="border-radius: 9999px;">
+                Send Verification Code
+              </button>
+            </form>
+
+            <!-- Profile Completion Step 2 (OTP) -->
+            <form id="complete-profile-step2" style="display: none;">
+              <div style="text-align: center; margin-bottom: 20px;">
+                <p style="font-size: 14px; color: var(--color-gray-text);">
+                  Enter 6-digit code sent to <strong id="complete-otp-email">${user.email}</strong>.
+                </p>
+              </div>
+
+              <div class="form-group">
+                <input type="text" id="complete-otp-code" class="form-input" placeholder="123456" maxlength="6" style="text-align: center; font-size: 24px; font-weight: 700; letter-spacing: 8px;" required />
+              </div>
+
+              <button type="submit" id="complete-verify-otp-btn" class="btn btn-primary btn-full btn-lg" style="border-radius: 9999px; margin-bottom: 12px;">
+                Verify & Grant Access
+              </button>
+            </form>
+
+          </div>
+        </div>
+      </section>
+    `;
+
+    if (window.feather) feather.replace();
+
+    const step1 = document.getElementById('complete-profile-step1');
+    const step2 = document.getElementById('complete-profile-step2');
+
+    step1?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const phone = document.getElementById('complete-phone').value.trim();
+      const terms = document.getElementById('complete-terms').checked;
+      const sendBtn = document.getElementById('complete-send-otp-btn');
+
+      if (!terms) {
+        Toast.show('You must agree to the Terms & Conditions.', 'error');
+        return;
+      }
+
+      try {
+        sendBtn.disabled = true;
+        sendBtn.innerText = 'Sending code...';
+
+        const res = await API.request('/api/auth/complete-google-profile', {
+          method: 'POST',
+          body: {
+            user_id: user.id,
+            email: user.email,
+            phone,
+            terms_accepted: terms
+          }
+        });
+
+        Toast.show(res.message, 'success');
+        if (res.dev_otp) {
+          Toast.show(`[DEV OTP CODE]: ${res.dev_otp}`, 'info');
+        }
+
+        step1.style.display = 'none';
+        step2.style.display = 'block';
+      } catch (err) {
+        Toast.show(err.message, 'error');
+      } finally {
+        sendBtn.disabled = false;
+        sendBtn.innerText = 'Send Verification Code';
+      }
+    });
+
+    step2?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const phone = document.getElementById('complete-phone').value.trim();
+      const countryCode = document.getElementById('complete-country-code').value;
+      const code = document.getElementById('complete-otp-code').value.trim();
+      const marketing = document.getElementById('complete-marketing').checked;
+      const verifyBtn = document.getElementById('complete-verify-otp-btn');
+
+      try {
+        verifyBtn.disabled = true;
+        verifyBtn.innerText = 'Verifying...';
+
+        const res = await API.request('/api/auth/verify-google-profile-otp', {
+          method: 'POST',
+          body: {
+            user_id: user.id,
+            email: user.email,
+            code,
+            phone,
+            phone_country_code: countryCode,
+            marketing_opt_in: marketing
+          }
+        });
+
+        API.setAuthToken(res.token);
+        API.setCurrentUser(res.user);
+        HeaderComponent.updateAuthState();
+        Toast.show('Profile completed! Welcome to WebIntern.', 'success');
+        window.location.hash = '#/dashboard';
+      } catch (err) {
+        Toast.show(err.message, 'error');
+      } finally {
+        verifyBtn.disabled = false;
+        verifyBtn.innerText = 'Verify & Grant Access';
+      }
+    });
+  },
+
+  async handleForgotPassword() {
+    const email = prompt('Enter your registered email address to receive a password reset link:');
+    if (!email || !email.trim()) return;
+
+    try {
+      Toast.show('Sending password reset email...', 'info');
+      const res = await API.request('/api/auth/forgot-password', {
+        method: 'POST',
+        body: { email: email.trim() }
+      });
+      Toast.show(res.message, 'success');
+    } catch (err) {
+      Toast.show(err.message, 'error');
+    }
   }
 };
