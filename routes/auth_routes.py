@@ -9,18 +9,26 @@ from supabase import create_client
 
 auth_bp = Blueprint('auth_bp', __name__)
 
+DEFAULT_SUPABASE_URL = "https://fzmdeigwxiesegvtuafk.supabase.co"
+DEFAULT_SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ6bWRlaWd3eGllc2VndnR1YWZrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg0MjA2NDAsImV4cCI6MjEwMzk5NjY0MH0.aqk90jQu4yBCgc0wi9zA0cMHf5XZ31OPVc3hcED0_J8"
+DEFAULT_SUPABASE_SERVICE = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ6bWRlaWd3eGllc2VndnR1YWZrIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4ODQyMDY0MCwiZXhwIjoyMTAzOTk2NjQwfQ.osKcbobbZPLz7RpO0zVgyHbIPJC2l6QDF6MBQ-W0uTA"
+
 def get_supabase_admin():
-    return create_client(Config.SUPABASE_URL, Config.SUPABASE_SERVICE_ROLE_KEY)
+    url = (Config.SUPABASE_URL or DEFAULT_SUPABASE_URL).strip()
+    key = (Config.SUPABASE_SERVICE_ROLE_KEY or DEFAULT_SUPABASE_SERVICE).strip()
+    return create_client(url, key)
 
 def get_supabase_anon():
-    return create_client(Config.SUPABASE_URL, Config.SUPABASE_ANON_KEY)
+    url = (Config.SUPABASE_URL or DEFAULT_SUPABASE_URL).strip()
+    key = (Config.SUPABASE_ANON_KEY or DEFAULT_SUPABASE_ANON).strip()
+    return create_client(url, key)
 
 @auth_bp.route('/api/auth/config', methods=['GET'])
 def get_auth_config():
     """Return public Supabase configuration for frontend initialization."""
     return jsonify({
-        'supabase_url': Config.SUPABASE_URL,
-        'supabase_anon_key': Config.SUPABASE_ANON_KEY,
+        'supabase_url': Config.SUPABASE_URL or DEFAULT_SUPABASE_URL,
+        'supabase_anon_key': Config.SUPABASE_ANON_KEY or DEFAULT_SUPABASE_ANON,
         'google_client_id': Config.GOOGLE_CLIENT_ID
     }), 200
 
@@ -40,6 +48,19 @@ def sync_profile_to_local_db(user_id, full_name, email, phone="", phone_country_
             )
     except Exception as e:
         print(f"[SQLite Sync Warning]: {e}")
+
+def safe_upsert_profile(supabase_admin, profile_dict):
+    """Helper to safely upsert profiles even if certain columns differ in Postgres schema."""
+    try:
+        supabase_admin.table('profiles').upsert(profile_dict).execute()
+    except Exception as e:
+        err_str = str(e)
+        if 'email' in err_str and 'column' in err_str:
+            # Fallback without email column if missing
+            fallback_dict = {k: v for k, v in profile_dict.items() if k != 'email'}
+            supabase_admin.table('profiles').upsert(fallback_dict).execute()
+        else:
+            print(f"[Profiles Upsert Warning]: {e}")
 
 @auth_bp.route('/api/auth/register', methods=['POST'])
 def register_user():
@@ -92,6 +113,7 @@ def register_user():
         profile_data = {
             'id': user_id,
             'name': full_name,
+            'email': email,
             'mobile': full_mobile,
             'phone_verified': False,
             'auth_provider': 'email',
@@ -100,7 +122,7 @@ def register_user():
             'profile_complete': False
         }
         
-        supabase_admin.table('profiles').upsert(profile_data).execute()
+        safe_upsert_profile(supabase_admin, profile_data)
         sync_profile_to_local_db(user_id, full_name, email, phone, phone_country_code, marketing_opt_in)
 
         # 3. Generate mobile OTP for verification
@@ -133,7 +155,6 @@ def verify_mobile_otp():
 
     valid, msg = verify_otp_code(email, code, purpose='register_mobile')
     if not valid:
-        # Fallback check standard 'register' or 'complete_profile' OTPs
         valid, msg = verify_otp_code(email, code, purpose='complete_profile')
         if not valid:
             valid, msg = verify_otp_code(email, code, purpose='register')
@@ -143,7 +164,6 @@ def verify_mobile_otp():
     try:
         supabase_admin = get_supabase_admin()
         
-        # Mark profile as verified & complete in Supabase
         update_payload = {
             'phone_verified': True,
             'profile_complete': True
@@ -153,12 +173,19 @@ def verify_mobile_otp():
             supabase_admin.table('profiles').update(update_payload).eq('id', user_id).execute()
             prof_res = supabase_admin.table('profiles').select('*').eq('id', user_id).execute()
         else:
-            prof_res = supabase_admin.table('profiles').select('*').eq('email', email).execute()
-            if prof_res.data and len(prof_res.data) > 0:
-                user_id = prof_res.data[0]['id']
+            # Fallback select by user_id from auth if possible
+            users_list = supabase_admin.auth.admin.list_users()
+            for u in users_list:
+                if u.email == email:
+                    user_id = str(u.id)
+                    break
+            if user_id:
                 supabase_admin.table('profiles').update(update_payload).eq('id', user_id).execute()
+                prof_res = supabase_admin.table('profiles').select('*').eq('id', user_id).execute()
+            else:
+                prof_res = {'data': []}
 
-        profile = prof_res.data[0] if (prof_res.data and len(prof_res.data) > 0) else None
+        profile = prof_res.data[0] if (isinstance(prof_res, dict) and 'data' in prof_res and prof_res['data']) or (hasattr(prof_res, 'data') and prof_res.data) else None
         user_name = profile.get('name') if profile else email.split('@')[0]
 
         token = generate_jwt({
@@ -211,17 +238,17 @@ def login_user():
 
         user_id = str(auth_res.user.id)
 
-        # Retrieve profile from Supabase profiles table
+        # Retrieve profile from Supabase profiles table by ID
         prof_res = supabase_admin.table('profiles').select('*').eq('id', user_id).execute()
         
         profile = None
         if prof_res.data and len(prof_res.data) > 0:
             profile = prof_res.data[0]
         else:
-            # Create default profile if missing
             default_profile = {
                 'id': user_id,
                 'name': auth_res.user.user_metadata.get('name', email.split('@')[0]),
+                'email': email,
                 'mobile': '',
                 'phone_verified': False,
                 'auth_provider': 'email',
@@ -229,7 +256,7 @@ def login_user():
                 'marketing_opt_in': False,
                 'profile_complete': True
             }
-            supabase_admin.table('profiles').upsert(default_profile).execute()
+            safe_upsert_profile(supabase_admin, default_profile)
             profile = default_profile
             sync_profile_to_local_db(user_id, profile['name'], email)
 
@@ -275,34 +302,24 @@ def sync_google_user():
     try:
         supabase_admin = get_supabase_admin()
         
-        # Fetch profile
         prof_res = supabase_admin.table('profiles').select('*').eq('id', user_id).execute()
         profile = prof_res.data[0] if (prof_res.data and len(prof_res.data) > 0) else None
 
         if not profile:
-            # Check if existing profile matches by email
-            email_prof = supabase_admin.table('profiles').select('*').eq('email', email).execute()
-            if email_prof.data and len(email_prof.data) > 0:
-                existing = email_prof.data[0]
-                provider = 'both' if existing.get('auth_provider') == 'email' else existing.get('auth_provider', 'google')
-                supabase_admin.table('profiles').update({'auth_provider': provider}).eq('id', existing['id']).execute()
-                profile = existing
-                profile['auth_provider'] = provider
-            else:
-                # Create initial incomplete profile for new Google user
-                new_profile = {
-                    'id': user_id,
-                    'name': name or email.split('@')[0],
-                    'mobile': '',
-                    'phone_verified': False,
-                    'auth_provider': 'google',
-                    'terms_accepted': False,
-                    'marketing_opt_in': False,
-                    'profile_complete': False
-                }
-                supabase_admin.table('profiles').insert(new_profile).execute()
-                profile = new_profile
-                sync_profile_to_local_db(user_id, name or email.split('@')[0], email)
+            new_profile = {
+                'id': user_id,
+                'name': name or email.split('@')[0],
+                'email': email,
+                'mobile': '',
+                'phone_verified': False,
+                'auth_provider': 'google',
+                'terms_accepted': False,
+                'marketing_opt_in': False,
+                'profile_complete': False
+            }
+            safe_upsert_profile(supabase_admin, new_profile)
+            profile = new_profile
+            sync_profile_to_local_db(user_id, name or email.split('@')[0], email)
 
         token = generate_jwt({
             'sub': profile['id'],
@@ -480,7 +497,6 @@ def get_current_user():
             admin['role'] = 'admin'
             return jsonify({'user': admin}), 200
     else:
-        # Try fetching from Supabase first
         try:
             supabase_admin = get_supabase_admin()
             prof_res = supabase_admin.table('profiles').select('*').eq('id', user_payload['sub']).execute()
@@ -499,7 +515,6 @@ def get_current_user():
         except Exception:
             pass
 
-        # Fallback to local DB
         profile = query_db("SELECT id, full_name, email, phone, phone_country_code, college, avatar_url, created_at FROM profiles WHERE id = ?", (user_payload['sub'],), one=True)
         if profile:
             profile['role'] = 'student'

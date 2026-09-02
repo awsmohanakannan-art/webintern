@@ -3,7 +3,12 @@ import shutil
 import tempfile
 from dotenv import load_dotenv
 
-load_dotenv()
+# Ensure .env is explicitly loaded from root directory
+env_path = os.path.join(os.path.dirname(__file__), ".env")
+if os.path.exists(env_path):
+    load_dotenv(env_path)
+else:
+    load_dotenv()
 
 def get_sqlite_db_path():
     root_db = os.path.join(os.path.dirname(__file__), "webintern.db")
@@ -30,14 +35,14 @@ class Config:
     JWT_ALGORITHM = "HS256"
     JWT_EXPIRATION_HOURS = 24
 
-    # Supabase credentials
-    SUPABASE_URL = os.getenv("SUPABASE_URL", "")
-    SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
-    SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+    # Supabase credentials with hardcoded default fallbacks to prevent missing URL errors
+    SUPABASE_URL = (os.getenv("SUPABASE_URL") or "https://fzmdeigwxiesegvtuafk.supabase.co").strip()
+    SUPABASE_ANON_KEY = (os.getenv("SUPABASE_ANON_KEY") or "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ6bWRlaWd3eGllc2VndnR1YWZrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg0MjA2NDAsImV4cCI6MjEwMzk5NjY0MH0.aqk90jQu4yBCgc0wi9zA0cMHf5XZ31OPVc3hcED0_J8").strip()
+    SUPABASE_SERVICE_ROLE_KEY = (os.getenv("SUPABASE_SERVICE_ROLE_KEY") or "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ6bWRlaWd3eGllc2VndnR1YWZrIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4ODQyMDY0MCwiZXhwIjoyMTAzOTk2NjQwfQ.osKcbobbZPLz7RpO0zVgyHbIPJC2l6QDF6MBQ-W0uTA").strip()
 
     # Google OAuth credentials (SERVER-SIDE ONLY)
-    GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
-    GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+    GOOGLE_CLIENT_ID = (os.getenv("GOOGLE_CLIENT_ID") or "").strip()
+    GOOGLE_CLIENT_SECRET = (os.getenv("GOOGLE_CLIENT_SECRET") or "").strip()
 
     # Resend
     RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
