@@ -61,7 +61,7 @@ def safe_upsert_profile(supabase_admin, profile_dict):
 
 @auth_bp.route('/api/auth/register', methods=['POST'])
 def register_user():
-    """Register user with Supabase Auth and directly create activated profile (NO OTP REQUIRED)."""
+    """Register user with Supabase Auth and directly create activated profile."""
     data = request.get_json() or {}
     full_name = data.get('full_name', '').strip()
     email = data.get('email', '').strip().lower()
@@ -144,7 +144,7 @@ def register_user():
 
     except Exception as e:
         err_msg = str(e)
-        if 'already registered' in err_msg.lower() or 'already exists' in err_msg.lower() or 'duplicate' in err_msg.lower():
+        if any(term in err_msg.lower() for term in ['already registered', 'already exists', 'duplicate', 'user with this email', 'has already been registered']):
             return jsonify({'error': 'An account with this email address already exists. Please sign in instead.'}), 400
         return jsonify({'error': f'Registration failed: {err_msg}'}), 400
 
@@ -219,13 +219,13 @@ def login_user():
 
     except Exception as e:
         err_msg = str(e)
-        if 'invalid credentials' in err_msg.lower() or 'invalid login' in err_msg.lower():
+        if 'invalid credentials' in err_msg.lower() or 'invalid login' in err_msg.lower() or 'invalid email' in err_msg.lower():
             return jsonify({'error': 'Invalid email or password.'}), 401
         return jsonify({'error': f'Authentication failed: {err_msg}'}), 400
 
 @auth_bp.route('/api/auth/google-sync', methods=['POST'])
 def sync_google_user():
-    """Sync profile and handle provider linking for users logging in via Google OAuth (NO OTP REQUIRED)."""
+    """Sync profile and handle provider linking for users logging in via Google OAuth."""
     data = request.get_json() or {}
     user_id = data.get('id')
     email = data.get('email', '').strip().lower()

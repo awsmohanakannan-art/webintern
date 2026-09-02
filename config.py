@@ -31,7 +31,8 @@ def get_sqlite_db_path():
     return root_db
 
 class Config:
-    SECRET_KEY = os.getenv("JWT_SECRET", "webintern_default_secret_key_2026")
+    # Guaranteed non-empty JWT Secret Key fallback
+    SECRET_KEY = (os.getenv("JWT_SECRET") or "webintern_jwt_secret_key_2026_secure_token_982347").strip()
     JWT_ALGORITHM = "HS256"
     JWT_EXPIRATION_HOURS = 24
 

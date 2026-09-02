@@ -1,3 +1,4 @@
+import os
 import jwt
 import datetime
 import bcrypt
@@ -5,16 +6,24 @@ from functools import wraps
 from flask import request, jsonify
 from config import Config
 
+DEFAULT_JWT_SECRET = "webintern_jwt_secret_key_2026_secure_token_982347"
+
+def get_jwt_secret():
+    secret = (getattr(Config, 'SECRET_KEY', None) or os.getenv("JWT_SECRET") or DEFAULT_JWT_SECRET).strip()
+    return secret if secret else DEFAULT_JWT_SECRET
+
 def generate_jwt(payload_data, expires_in_hours=24):
+    secret = get_jwt_secret()
     payload = payload_data.copy()
     payload['exp'] = datetime.datetime.utcnow() + datetime.timedelta(hours=expires_in_hours)
     payload['iat'] = datetime.datetime.utcnow()
-    token = jwt.encode(payload, Config.SECRET_KEY, algorithm=Config.JWT_ALGORITHM)
+    token = jwt.encode(payload, secret, algorithm=Config.JWT_ALGORITHM)
     return token
 
 def decode_jwt(token):
+    secret = get_jwt_secret()
     try:
-        payload = jwt.decode(token, Config.SECRET_KEY, algorithms=[Config.JWT_ALGORITHM])
+        payload = jwt.decode(token, secret, algorithms=[Config.JWT_ALGORITHM])
         return payload
     except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
         return None
