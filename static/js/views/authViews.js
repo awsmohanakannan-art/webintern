@@ -1,4 +1,4 @@
-// Auth Views Renderer (Create Account & Login with Supabase, Email/Password, Google OAuth, Mobile OTP & Profile Completion)
+// Auth Views Renderer (Create Account & Login with Supabase, Email/Password, Google OAuth — Direct Sign-In without compulsory OTP)
 
 const GOOGLE_BTN_HTML = `
   <div style="display: flex; align-items: center; margin: 20px 0; text-align: center;">
@@ -49,8 +49,8 @@ const AuthViews = {
               <p style="color: var(--color-gray-text); font-size: 14px;">Register to start your virtual internship program.</p>
             </div>
 
-            <!-- Step 1: Account Registration Details -->
-            <form id="register-form-step1">
+            <!-- Direct Account Registration Form -->
+            <form id="register-form">
               <div class="form-group">
                 <label class="form-label">Full Name *</label>
                 <div style="position: relative;">
@@ -68,7 +68,7 @@ const AuthViews = {
               </div>
 
               <div class="form-group">
-                <label class="form-label">Mobile Number *</label>
+                <label class="form-label">Mobile Number</label>
                 <div style="display: flex; gap: 8px;">
                   <select id="reg-country-code" class="form-input" style="width: 110px; padding: 12px 8px; font-size: 13px;">
                     <option value="+91">+91 — IN</option>
@@ -79,7 +79,7 @@ const AuthViews = {
                   </select>
                   <div style="position: relative; flex-grow: 1;">
                     <i data-feather="phone" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--color-gray-text); width: 18px;"></i>
-                    <input type="tel" id="reg-phone" class="form-input" style="padding-left: 42px;" placeholder="9876543210" required />
+                    <input type="tel" id="reg-phone" class="form-input" style="padding-left: 42px;" placeholder="9876543210" />
                   </div>
                 </div>
               </div>
@@ -117,30 +117,6 @@ const AuthViews = {
               </button>
             </form>
 
-            <!-- Step 2: Mobile OTP Verification (Initially Hidden) -->
-            <form id="register-form-step2" style="display: none;">
-              <div style="text-align: center; margin-bottom: 20px;">
-                <div style="width: 48px; height: 48px; background-color: #EBF3FE; color: var(--color-primary-blue); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 12px auto;">
-                  <i data-feather="shield-check" style="width: 24px; height: 24px;"></i>
-                </div>
-                <h3 style="font-size: 18px; color: var(--color-blue-dark); margin-bottom: 6px;">Verify Mobile Number</h3>
-                <p style="font-size: 14px; color: var(--color-gray-text);">
-                  Enter the 6-digit verification code sent to <strong id="otp-email-display"></strong>.
-                </p>
-              </div>
-
-              <div class="form-group">
-                <input type="text" id="reg-otp-code" class="form-input" placeholder="123456" maxlength="6" style="text-align: center; font-size: 24px; font-weight: 700; letter-spacing: 8px;" required />
-              </div>
-
-              <button type="submit" id="reg-verify-btn" class="btn btn-primary btn-full btn-lg" style="border-radius: 9999px; margin-bottom: 12px;">
-                Verify & Activate Account
-              </button>
-              <button type="button" onclick="AuthViews.renderRegister()" class="btn btn-outline btn-full btn-sm" style="border-radius: 9999px;">
-                ← Back / Edit Info
-              </button>
-            </form>
-
             ${GOOGLE_BTN_HTML}
 
             <div style="text-align: center; margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--color-border);">
@@ -159,11 +135,9 @@ const AuthViews = {
   },
 
   bindRegisterEvents() {
-    const step1 = document.getElementById('register-form-step1');
-    const step2 = document.getElementById('register-form-step2');
-    let registeredUserId = '';
+    const form = document.getElementById('register-form');
 
-    step1?.addEventListener('submit', async (e) => {
+    form?.addEventListener('submit', async (e) => {
       e.preventDefault();
       const name = document.getElementById('reg-name').value.trim();
       const email = document.getElementById('reg-email').value.trim();
@@ -203,52 +177,17 @@ const AuthViews = {
           }
         });
 
-        registeredUserId = res.user_id;
-        Toast.show(res.message, 'success');
-        if (res.dev_otp) {
-          Toast.show(`[DEV OTP CODE]: ${res.dev_otp}`, 'info');
-        }
+        API.setAuthToken(res.token);
+        API.setCurrentUser(res.user);
+        HeaderComponent.updateAuthState();
 
-        document.getElementById('otp-email-display').innerText = email;
-        step1.style.display = 'none';
-        step2.style.display = 'block';
+        Toast.show('Account created successfully! Welcome to WebIntern.', 'success');
+        window.location.hash = '#/dashboard';
       } catch (err) {
         Toast.show(err.message, 'error');
       } finally {
         submitBtn.disabled = false;
         submitBtn.innerText = 'Create Account';
-      }
-    });
-
-    step2?.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const email = document.getElementById('reg-email').value.trim();
-      const code = document.getElementById('reg-otp-code').value.trim();
-      const verifyBtn = document.getElementById('reg-verify-btn');
-
-      try {
-        verifyBtn.disabled = true;
-        verifyBtn.innerText = 'Verifying code...';
-
-        const res = await API.request('/api/auth/verify-mobile-otp', {
-          method: 'POST',
-          body: {
-            email,
-            code,
-            user_id: registeredUserId
-          }
-        });
-
-        API.setAuthToken(res.token);
-        API.setCurrentUser(res.user);
-        HeaderComponent.updateAuthState();
-        Toast.show('Account created and verified successfully!', 'success');
-        window.location.hash = '#/dashboard';
-      } catch (err) {
-        Toast.show(err.message, 'error');
-      } finally {
-        verifyBtn.disabled = false;
-        verifyBtn.innerText = 'Verify & Activate Account';
       }
     });
   },
@@ -333,11 +272,6 @@ const AuthViews = {
         API.setCurrentUser(res.user);
         HeaderComponent.updateAuthState();
 
-        if (res.user && res.user.profile_complete === false) {
-          this.renderCompleteProfileModal(res.user);
-          return;
-        }
-
         Toast.show('Login successful!', 'success');
 
         const params = new URLSearchParams(window.location.hash.split('?')[1] || '');
@@ -398,181 +332,12 @@ const AuthViews = {
         API.setCurrentUser(res.user);
         HeaderComponent.updateAuthState();
 
-        if (res.user.profile_complete === false) {
-          this.renderCompleteProfileModal(res.user);
-        } else {
-          Toast.show('Welcome back!', 'success');
-          window.location.hash = '#/dashboard';
-        }
+        Toast.show('Signed in with Google successfully!', 'success');
+        window.location.hash = '#/dashboard';
       }
     } catch (e) {
       console.warn('Google OAuth session check:', e);
     }
-  },
-
-  renderCompleteProfileModal(user) {
-    const container = document.getElementById('app-view');
-    if (!container) return;
-
-    container.innerHTML = `
-      <section class="section-padding" style="background-color: var(--color-gray-bg); min-height: calc(100vh - 72px); display: flex; align-items: center; justify-content: center;">
-        <div class="container" style="max-width: 480px;">
-          <div style="background: var(--color-white); border-radius: var(--radius-lg); padding: 40px 32px; border: 1px solid var(--color-border); box-shadow: var(--shadow-xl);">
-            
-            <div style="text-align: center; margin-bottom: 24px;">
-              <div style="width: 52px; height: 52px; background-color: #EBF3FE; color: var(--color-primary-blue); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 12px auto;">
-                <i data-feather="user-check" style="width: 26px; height: 26px;"></i>
-              </div>
-              <h2 style="font-size: 24px; color: var(--color-blue-dark); margin-bottom: 6px;">Complete Your Profile</h2>
-              <p style="color: var(--color-gray-text); font-size: 14px;">Please provide your mobile number to finalize your account activation.</p>
-            </div>
-
-            <!-- Profile Completion Step 1 -->
-            <form id="complete-profile-step1">
-              <div class="form-group">
-                <label class="form-label">Full Name</label>
-                <input type="text" class="form-input" value="${user.full_name || ''}" readonly style="background-color: var(--color-gray-bg);" />
-              </div>
-
-              <div class="form-group">
-                <label class="form-label">Email Address</label>
-                <input type="email" class="form-input" value="${user.email || ''}" readonly style="background-color: var(--color-gray-bg);" />
-              </div>
-
-              <div class="form-group">
-                <label class="form-label">Mobile Number *</label>
-                <div style="display: flex; gap: 8px;">
-                  <select id="complete-country-code" class="form-input" style="width: 110px; padding: 12px 8px; font-size: 13px;">
-                    <option value="+91">+91 — IN</option>
-                    <option value="+1">+1 — US</option>
-                    <option value="+44">+44 — UK</option>
-                  </select>
-                  <div style="position: relative; flex-grow: 1;">
-                    <i data-feather="phone" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--color-gray-text); width: 18px;"></i>
-                    <input type="tel" id="complete-phone" class="form-input" style="padding-left: 42px;" placeholder="9876543210" required />
-                  </div>
-                </div>
-              </div>
-
-              <div style="margin-bottom: 20px; display: flex; flex-direction: column; gap: 12px;">
-                <label class="checkbox-label">
-                  <input type="checkbox" id="complete-terms" required />
-                  <span>I agree to the <a href="#/privacy-policy" target="_blank" style="color: var(--color-accent-blue);">Terms & Conditions</a> and <a href="#/privacy-policy" target="_blank" style="color: var(--color-accent-blue);">Privacy Policy</a> *</span>
-                </label>
-                <label class="checkbox-label">
-                  <input type="checkbox" id="complete-marketing" />
-                  <span>Send me updates, offers and marketing emails</span>
-                </label>
-              </div>
-
-              <button type="submit" id="complete-send-otp-btn" class="btn btn-primary btn-full btn-lg" style="border-radius: 9999px;">
-                Send Verification Code
-              </button>
-            </form>
-
-            <!-- Profile Completion Step 2 (OTP) -->
-            <form id="complete-profile-step2" style="display: none;">
-              <div style="text-align: center; margin-bottom: 20px;">
-                <p style="font-size: 14px; color: var(--color-gray-text);">
-                  Enter 6-digit code sent to <strong id="complete-otp-email">${user.email}</strong>.
-                </p>
-              </div>
-
-              <div class="form-group">
-                <input type="text" id="complete-otp-code" class="form-input" placeholder="123456" maxlength="6" style="text-align: center; font-size: 24px; font-weight: 700; letter-spacing: 8px;" required />
-              </div>
-
-              <button type="submit" id="complete-verify-otp-btn" class="btn btn-primary btn-full btn-lg" style="border-radius: 9999px; margin-bottom: 12px;">
-                Verify & Grant Access
-              </button>
-            </form>
-
-          </div>
-        </div>
-      </section>
-    `;
-
-    if (window.feather) feather.replace();
-
-    const step1 = document.getElementById('complete-profile-step1');
-    const step2 = document.getElementById('complete-profile-step2');
-
-    step1?.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const phone = document.getElementById('complete-phone').value.trim();
-      const terms = document.getElementById('complete-terms').checked;
-      const sendBtn = document.getElementById('complete-send-otp-btn');
-
-      if (!terms) {
-        Toast.show('You must agree to the Terms & Conditions.', 'error');
-        return;
-      }
-
-      try {
-        sendBtn.disabled = true;
-        sendBtn.innerText = 'Sending code...';
-
-        const res = await API.request('/api/auth/complete-google-profile', {
-          method: 'POST',
-          body: {
-            user_id: user.id,
-            email: user.email,
-            phone,
-            terms_accepted: terms
-          }
-        });
-
-        Toast.show(res.message, 'success');
-        if (res.dev_otp) {
-          Toast.show(`[DEV OTP CODE]: ${res.dev_otp}`, 'info');
-        }
-
-        step1.style.display = 'none';
-        step2.style.display = 'block';
-      } catch (err) {
-        Toast.show(err.message, 'error');
-      } finally {
-        sendBtn.disabled = false;
-        sendBtn.innerText = 'Send Verification Code';
-      }
-    });
-
-    step2?.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const phone = document.getElementById('complete-phone').value.trim();
-      const countryCode = document.getElementById('complete-country-code').value;
-      const code = document.getElementById('complete-otp-code').value.trim();
-      const marketing = document.getElementById('complete-marketing').checked;
-      const verifyBtn = document.getElementById('complete-verify-otp-btn');
-
-      try {
-        verifyBtn.disabled = true;
-        verifyBtn.innerText = 'Verifying...';
-
-        const res = await API.request('/api/auth/verify-google-profile-otp', {
-          method: 'POST',
-          body: {
-            user_id: user.id,
-            email: user.email,
-            code,
-            phone,
-            phone_country_code: countryCode,
-            marketing_opt_in: marketing
-          }
-        });
-
-        API.setAuthToken(res.token);
-        API.setCurrentUser(res.user);
-        HeaderComponent.updateAuthState();
-        Toast.show('Profile completed! Welcome to WebIntern.', 'success');
-        window.location.hash = '#/dashboard';
-      } catch (err) {
-        Toast.show(err.message, 'error');
-      } finally {
-        verifyBtn.disabled = false;
-        verifyBtn.innerText = 'Verify & Grant Access';
-      }
-    });
   },
 
   async handleForgotPassword() {

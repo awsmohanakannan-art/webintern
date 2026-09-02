@@ -1,9 +1,7 @@
 import uuid
 from flask import Blueprint, request, jsonify, make_response
 from database import query_db, execute_db
-from utils.otp import create_and_store_otp, verify_otp_code
 from utils.auth import generate_jwt, check_password, jwt_required
-from utils.email_service import send_otp_email
 from config import Config
 from supabase import create_client
 
@@ -29,7 +27,7 @@ def get_auth_config():
     return jsonify({
         'supabase_url': Config.SUPABASE_URL or DEFAULT_SUPABASE_URL,
         'supabase_anon_key': Config.SUPABASE_ANON_KEY or DEFAULT_SUPABASE_ANON,
-        'google_client_id': Config.GOOGLE_CLIENT_ID
+        'google_client_id': Config.GOOGLE_CLIENT_ID or "1013835320701-p74mrb7a14tjng226elmppqgko9mldvi.apps.googleusercontent.com"
     }), 200
 
 def sync_profile_to_local_db(user_id, full_name, email, phone="", phone_country_code="+91", marketing_opt_in=False):
@@ -56,7 +54,6 @@ def safe_upsert_profile(supabase_admin, profile_dict):
     except Exception as e:
         err_str = str(e)
         if 'email' in err_str and 'column' in err_str:
-            # Fallback without email column if missing
             fallback_dict = {k: v for k, v in profile_dict.items() if k != 'email'}
             supabase_admin.table('profiles').upsert(fallback_dict).execute()
         else:
@@ -64,7 +61,7 @@ def safe_upsert_profile(supabase_admin, profile_dict):
 
 @auth_bp.route('/api/auth/register', methods=['POST'])
 def register_user():
-    """Step 1: Register user with Supabase Auth and create unverified profile."""
+    """Register user with Supabase Auth and directly create activated profile (NO OTP REQUIRED)."""
     data = request.get_json() or {}
     full_name = data.get('full_name', '').strip()
     email = data.get('email', '').strip().lower()
@@ -80,18 +77,16 @@ def register_user():
         return jsonify({'error': 'Full name is required.'}), 400
     if not email:
         return jsonify({'error': 'Email address is required.'}), 400
-    if not phone:
-        return jsonify({'error': 'Mobile number is required.'}), 400
     if not password:
         return jsonify({'error': 'Password is required.'}), 400
     if len(password) < 6:
         return jsonify({'error': 'Password must be at least 6 characters long.'}), 400
-    if password != confirm_password:
+    if confirm_password and password != confirm_password:
         return jsonify({'error': 'Passwords do not match.'}), 400
     if not terms_accepted:
         return jsonify({'error': 'You must agree to the Terms & Conditions and Privacy Policy.'}), 400
 
-    full_mobile = f"{phone_country_code} {phone}".strip()
+    full_mobile = f"{phone_country_code} {phone}".strip() if phone else ""
 
     try:
         supabase_admin = get_supabase_admin()
@@ -109,100 +104,37 @@ def register_user():
 
         user_id = str(res.user.id)
 
-        # 2. Insert into public.profiles in Supabase
+        # 2. Insert into public.profiles in Supabase as completed/active
         profile_data = {
             'id': user_id,
             'name': full_name,
             'email': email,
             'mobile': full_mobile,
-            'phone_verified': False,
+            'phone_verified': True,
             'auth_provider': 'email',
             'terms_accepted': True,
             'marketing_opt_in': marketing_opt_in,
-            'profile_complete': False
+            'profile_complete': True
         }
         
         safe_upsert_profile(supabase_admin, profile_data)
         sync_profile_to_local_db(user_id, full_name, email, phone, phone_country_code, marketing_opt_in)
 
-        # 3. Generate mobile OTP for verification
-        code = create_and_store_otp(email, purpose='register_mobile')
-        send_otp_email(email, code, purpose='registration')
-
-        return jsonify({
-            'message': 'Account created! Please enter the 6-digit OTP code sent to verify your account.',
-            'user_id': user_id,
-            'email': email,
-            'dev_otp': code
-        }), 200
-
-    except Exception as e:
-        err_msg = str(e)
-        if 'already registered' in err_msg.lower() or 'already exists' in err_msg.lower() or 'duplicate' in err_msg.lower():
-            return jsonify({'error': 'An account with this email address already exists. Please sign in instead.'}), 400
-        return jsonify({'error': f'Registration failed: {err_msg}'}), 400
-
-@auth_bp.route('/api/auth/verify-mobile-otp', methods=['POST'])
-def verify_mobile_otp():
-    """Step 2: Verify OTP code and complete user registration profile."""
-    data = request.get_json() or {}
-    email = data.get('email', '').strip().lower()
-    code = data.get('code', '').strip()
-    user_id = data.get('user_id', '').strip()
-
-    if not email or not code:
-        return jsonify({'error': 'Email and verification code are required.'}), 400
-
-    valid, msg = verify_otp_code(email, code, purpose='register_mobile')
-    if not valid:
-        valid, msg = verify_otp_code(email, code, purpose='complete_profile')
-        if not valid:
-            valid, msg = verify_otp_code(email, code, purpose='register')
-            if not valid:
-                return jsonify({'error': msg}), 400
-
-    try:
-        supabase_admin = get_supabase_admin()
-        
-        update_payload = {
-            'phone_verified': True,
-            'profile_complete': True
-        }
-        
-        if user_id:
-            supabase_admin.table('profiles').update(update_payload).eq('id', user_id).execute()
-            prof_res = supabase_admin.table('profiles').select('*').eq('id', user_id).execute()
-        else:
-            # Fallback select by user_id from auth if possible
-            users_list = supabase_admin.auth.admin.list_users()
-            for u in users_list:
-                if u.email == email:
-                    user_id = str(u.id)
-                    break
-            if user_id:
-                supabase_admin.table('profiles').update(update_payload).eq('id', user_id).execute()
-                prof_res = supabase_admin.table('profiles').select('*').eq('id', user_id).execute()
-            else:
-                prof_res = {'data': []}
-
-        profile = prof_res.data[0] if (isinstance(prof_res, dict) and 'data' in prof_res and prof_res['data']) or (hasattr(prof_res, 'data') and prof_res.data) else None
-        user_name = profile.get('name') if profile else email.split('@')[0]
-
         token = generate_jwt({
-            'sub': user_id or str(uuid.uuid4()),
+            'sub': user_id,
             'email': email,
-            'name': user_name,
+            'name': full_name,
             'role': 'student'
         })
 
         resp = make_response(jsonify({
-            'message': 'Account verified and activated successfully!',
+            'message': 'Account created successfully!',
             'token': token,
             'user': {
                 'id': user_id,
                 'email': email,
-                'full_name': user_name,
-                'mobile': profile.get('mobile') if profile else '',
+                'full_name': full_name,
+                'mobile': full_mobile,
                 'profile_complete': True,
                 'role': 'student'
             }
@@ -211,7 +143,10 @@ def verify_mobile_otp():
         return resp, 200
 
     except Exception as e:
-        return jsonify({'error': f'Failed to verify account: {str(e)}'}), 400
+        err_msg = str(e)
+        if 'already registered' in err_msg.lower() or 'already exists' in err_msg.lower() or 'duplicate' in err_msg.lower():
+            return jsonify({'error': 'An account with this email address already exists. Please sign in instead.'}), 400
+        return jsonify({'error': f'Registration failed: {err_msg}'}), 400
 
 @auth_bp.route('/api/auth/login', methods=['POST'])
 def login_user():
@@ -250,7 +185,7 @@ def login_user():
                 'name': auth_res.user.user_metadata.get('name', email.split('@')[0]),
                 'email': email,
                 'mobile': '',
-                'phone_verified': False,
+                'phone_verified': True,
                 'auth_provider': 'email',
                 'terms_accepted': True,
                 'marketing_opt_in': False,
@@ -275,7 +210,7 @@ def login_user():
                 'email': email,
                 'full_name': profile.get('name') or email.split('@')[0],
                 'mobile': profile.get('mobile', ''),
-                'profile_complete': profile.get('profile_complete', True),
+                'profile_complete': True,
                 'role': 'student'
             }
         }))
@@ -290,7 +225,7 @@ def login_user():
 
 @auth_bp.route('/api/auth/google-sync', methods=['POST'])
 def sync_google_user():
-    """Sync profile and handle provider linking for users logging in via Google OAuth."""
+    """Sync profile and handle provider linking for users logging in via Google OAuth (NO OTP REQUIRED)."""
     data = request.get_json() or {}
     user_id = data.get('id')
     email = data.get('email', '').strip().lower()
@@ -311,15 +246,19 @@ def sync_google_user():
                 'name': name or email.split('@')[0],
                 'email': email,
                 'mobile': '',
-                'phone_verified': False,
+                'phone_verified': True,
                 'auth_provider': 'google',
-                'terms_accepted': False,
+                'terms_accepted': True,
                 'marketing_opt_in': False,
-                'profile_complete': False
+                'profile_complete': True
             }
             safe_upsert_profile(supabase_admin, new_profile)
             profile = new_profile
             sync_profile_to_local_db(user_id, name or email.split('@')[0], email)
+        else:
+            if profile.get('auth_provider') == 'email':
+                supabase_admin.table('profiles').update({'auth_provider': 'both'}).eq('id', user_id).execute()
+                profile['auth_provider'] = 'both'
 
         token = generate_jwt({
             'sub': profile['id'],
@@ -329,14 +268,14 @@ def sync_google_user():
         })
 
         resp = make_response(jsonify({
-            'message': 'Google user profile retrieved.',
+            'message': 'Google authentication successful.',
             'token': token,
             'user': {
                 'id': profile['id'],
                 'email': email,
                 'full_name': profile.get('name') or name or email.split('@')[0],
                 'mobile': profile.get('mobile', ''),
-                'profile_complete': profile.get('profile_complete', False),
+                'profile_complete': True,
                 'auth_provider': profile.get('auth_provider', 'google'),
                 'role': 'student'
             }
@@ -346,94 +285,6 @@ def sync_google_user():
 
     except Exception as e:
         return jsonify({'error': f'Failed to sync Google user: {str(e)}'}), 400
-
-@auth_bp.route('/api/auth/complete-google-profile', methods=['POST'])
-def complete_google_profile_request():
-    """Request OTP for completing Google user profile (Mobile + Terms)."""
-    data = request.get_json() or {}
-    user_id = data.get('user_id')
-    email = data.get('email', '').strip().lower()
-    phone = data.get('phone', '').strip()
-    terms_accepted = data.get('terms_accepted', False)
-
-    if not user_id or not email or not phone:
-        return jsonify({'error': 'User ID, email, and mobile number are required.'}), 400
-    if not terms_accepted:
-        return jsonify({'error': 'You must agree to the Terms & Conditions and Privacy Policy.'}), 400
-
-    code = create_and_store_otp(email, purpose='complete_profile')
-    send_otp_email(email, code, purpose='registration')
-
-    return jsonify({
-        'message': 'Verification code sent to your email address.',
-        'email': email,
-        'dev_otp': code
-    }), 200
-
-@auth_bp.route('/api/auth/verify-google-profile-otp', methods=['POST'])
-def verify_google_profile_otp():
-    """Verify OTP and mark Google user profile as complete."""
-    data = request.get_json() or {}
-    user_id = data.get('user_id')
-    email = data.get('email', '').strip().lower()
-    code = data.get('code', '').strip()
-    phone = data.get('phone', '').strip()
-    phone_country_code = data.get('phone_country_code', '+91').strip()
-    marketing_opt_in = data.get('marketing_opt_in', False)
-
-    if not email or not code:
-        return jsonify({'error': 'Email and verification code are required.'}), 400
-
-    valid, msg = verify_otp_code(email, code, purpose='complete_profile')
-    if not valid:
-        valid, msg = verify_otp_code(email, code, purpose='register_mobile')
-        if not valid:
-            return jsonify({'error': msg}), 400
-
-    full_mobile = f"{phone_country_code} {phone}".strip()
-
-    try:
-        supabase_admin = get_supabase_admin()
-
-        update_data = {
-            'mobile': full_mobile,
-            'phone_verified': True,
-            'terms_accepted': True,
-            'marketing_opt_in': marketing_opt_in,
-            'profile_complete': True
-        }
-
-        supabase_admin.table('profiles').update(update_data).eq('id', user_id).execute()
-        prof_res = supabase_admin.table('profiles').select('*').eq('id', user_id).execute()
-        profile = prof_res.data[0] if (prof_res.data and len(prof_res.data) > 0) else {}
-
-        user_name = profile.get('name') or email.split('@')[0]
-        sync_profile_to_local_db(user_id, user_name, email, phone, phone_country_code, marketing_opt_in)
-
-        token = generate_jwt({
-            'sub': user_id,
-            'email': email,
-            'name': user_name,
-            'role': 'student'
-        })
-
-        resp = make_response(jsonify({
-            'message': 'Profile completed successfully!',
-            'token': token,
-            'user': {
-                'id': user_id,
-                'email': email,
-                'full_name': user_name,
-                'mobile': full_mobile,
-                'profile_complete': True,
-                'role': 'student'
-            }
-        }))
-        resp.set_cookie('access_token', token, httponly=True, samesite='Lax', max_age=86400)
-        return resp, 200
-
-    except Exception as e:
-        return jsonify({'error': f'Failed to complete profile: {str(e)}'}), 400
 
 @auth_bp.route('/api/auth/forgot-password', methods=['POST'])
 def forgot_password():
@@ -508,7 +359,7 @@ def get_current_user():
                         'full_name': p.get('name') or user_payload.get('name'),
                         'email': user_payload.get('email'),
                         'mobile': p.get('mobile'),
-                        'profile_complete': p.get('profile_complete', True),
+                        'profile_complete': True,
                         'role': 'student'
                     }
                 }), 200
