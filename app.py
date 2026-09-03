@@ -14,6 +14,7 @@ from routes.certificate_routes import certificate_bp
 from routes.payment_routes import payment_bp
 from routes.admin_routes import admin_bp
 from routes.public_routes import public_bp
+from routes.document_routes import document_bp
 
 def create_app():
     app = Flask(__name__, static_folder='static', static_url_path='')
@@ -36,8 +37,41 @@ def create_app():
     app.register_blueprint(payment_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(public_bp)
+    app.register_blueprint(document_bp)
 
     # Static file serving routes
+    @app.route('/templates/<path:path>')
+    def serve_templates(path):
+        templates_dir = Config.TEMPLATE_DIR
+        target = os.path.join(templates_dir, path)
+        if os.path.exists(target) and not os.path.isdir(target):
+            return send_from_directory(templates_dir, path)
+        return jsonify({'error': 'Template file not found'}), 404
+
+    @app.route('/public/<path:path>')
+    def serve_public(path):
+        public_dir = Config.PUBLIC_DIR
+        target = os.path.join(public_dir, path)
+        if os.path.exists(target) and not os.path.isdir(target):
+            return send_from_directory(public_dir, path)
+        return jsonify({'error': 'Public file not found'}), 404
+
+    @app.route('/api/templates', methods=['GET'])
+    def get_template_config():
+        templates = {}
+        for key, info in Config.DOCUMENT_TEMPLATES.items():
+            exists = os.path.exists(info['path'])
+            templates[key] = {
+                'filename': info['filename'],
+                'url': info['url'],
+                'path': info['path'],
+                'exists': exists
+            }
+        return jsonify({
+            'status': 'success',
+            'templates': templates
+        }), 200
+
     @app.route('/')
     def serve_index():
         static_dir = os.path.join(os.path.dirname(__file__), 'static')

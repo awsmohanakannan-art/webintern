@@ -3,3 +3,9 @@ __pycache__/
 .env
 node_modules/
 .DS_Store
+storage/assignments/*
+!storage/assignments/.gitkeep
+storage/generated/offers/*
+!storage/generated/offers/.gitkeep
+storage/generated/certificates/*
+!storage/generated/certificates/.gitkeep

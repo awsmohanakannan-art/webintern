@@ -1,6 +1,8 @@
 import json
 import uuid
+import datetime
 import requests
+import bcrypt
 from flask import Blueprint, request, jsonify, make_response, render_template_string
 from database import query_db, execute_db
 from utils.auth import generate_jwt, check_password, jwt_required
@@ -63,8 +65,9 @@ def safe_upsert_profile(supabase_admin, profile_dict):
             print(f"[Profiles Upsert Warning]: {e}")
 
 @auth_bp.route('/api/auth/register', methods=['POST'])
+@auth_bp.route('/api/auth/signup', methods=['POST'])
 def register_user():
-    """Register user with Supabase Auth and directly create activated profile."""
+    """Register user with local DB and Supabase Auth."""
     data = request.get_json() or {}
     full_name = data.get('full_name', '').strip()
     email = data.get('email', '').strip().lower()
@@ -90,38 +93,43 @@ def register_user():
         return jsonify({'error': 'You must agree to the Terms & Conditions and Privacy Policy.'}), 400
 
     full_mobile = f"{phone_country_code} {phone}".strip() if phone else ""
+    user_id = str(uuid.uuid4())
+    hashed_pwd = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
     try:
-        supabase_admin = get_supabase_admin()
-        
-        # 1. Create user in Supabase Auth
-        res = supabase_admin.auth.admin.create_user({
-            'email': email,
-            'password': password,
-            'email_confirm': True,
-            'user_metadata': {'name': full_name}
-        })
+        # Check existing in SQLite
+        existing = query_db("SELECT id FROM profiles WHERE email = ?", (email,), one=True)
+        if existing:
+            return jsonify({'error': 'An account with this email address already exists. Please sign in instead.'}), 400
 
-        if not res.user:
-            return jsonify({'error': 'Failed to create account in Supabase Auth.'}), 400
+        try:
+            supabase_admin = get_supabase_admin()
+            res = supabase_admin.auth.admin.create_user({
+                'email': email,
+                'password': password,
+                'email_confirm': True,
+                'user_metadata': {'name': full_name}
+            })
+            if res.user:
+                user_id = str(res.user.id)
+                safe_upsert_profile(supabase_admin, {
+                    'id': user_id,
+                    'name': full_name,
+                    'email': email,
+                    'mobile': full_mobile,
+                    'phone_verified': True,
+                    'auth_provider': 'email',
+                    'terms_accepted': True,
+                    'marketing_opt_in': marketing_opt_in,
+                    'profile_complete': True
+                })
+        except Exception as se:
+            print(f"[Supabase Admin Sync Warning]: {se}")
 
-        user_id = str(res.user.id)
-
-        # 2. Insert into public.profiles in Supabase as completed/active
-        profile_data = {
-            'id': user_id,
-            'name': full_name,
-            'email': email,
-            'mobile': full_mobile,
-            'phone_verified': True,
-            'auth_provider': 'email',
-            'terms_accepted': True,
-            'marketing_opt_in': marketing_opt_in,
-            'profile_complete': True
-        }
-        
-        safe_upsert_profile(supabase_admin, profile_data)
-        sync_profile_to_local_db(user_id, full_name, email, phone, phone_country_code, marketing_opt_in)
+        execute_db(
+            "INSERT INTO profiles (id, full_name, email, phone, phone_country_code, password_hash, auth_provider, terms_accepted, marketing_opt_in) VALUES (?, ?, ?, ?, ?, ?, 'email', 1, ?)",
+            (user_id, full_name, email, phone, phone_country_code, hashed_pwd, 1 if marketing_opt_in else 0)
+        )
 
         token = generate_jwt({
             'sub': user_id,
@@ -146,20 +154,42 @@ def register_user():
         return resp, 200
 
     except Exception as e:
-        err_msg = str(e)
-        if any(term in err_msg.lower() for term in ['already registered', 'already exists', 'duplicate', 'user with this email', 'has already been registered']):
-            return jsonify({'error': 'An account with this email address already exists. Please sign in instead.'}), 400
-        return jsonify({'error': f'Registration failed: {err_msg}'}), 400
+        return jsonify({'error': f'Registration failed: {str(e)}'}), 400
 
 @auth_bp.route('/api/auth/login', methods=['POST'])
 def login_user():
-    """Login user with Email and Password using Supabase Auth."""
+    """Login user with Email and Password using Local DB and Supabase Auth."""
     data = request.get_json() or {}
     email = data.get('email', '').strip().lower()
     password = data.get('password', '')
 
     if not email or not password:
         return jsonify({'error': 'Email address and password are required.'}), 400
+
+    # 1. Check local SQLite DB first
+    local_profile = query_db("SELECT * FROM profiles WHERE email = ?", (email,), one=True)
+    if local_profile and local_profile.get('password_hash'):
+        if bcrypt.checkpw(password.encode('utf-8'), local_profile['password_hash'].encode('utf-8')):
+            token = generate_jwt({
+                'sub': local_profile['id'],
+                'email': email,
+                'name': local_profile['full_name'],
+                'role': 'student'
+            })
+            resp = make_response(jsonify({
+                'message': 'Login successful.',
+                'token': token,
+                'user': {
+                    'id': local_profile['id'],
+                    'email': email,
+                    'full_name': local_profile['full_name'],
+                    'mobile': local_profile.get('phone') or local_profile.get('mobile') or '',
+                    'profile_complete': True,
+                    'role': 'student'
+                }
+            }))
+            resp.set_cookie('access_token', token, httponly=True, samesite='Lax', max_age=86400)
+            return resp, 200
 
     try:
         supabase_anon = get_supabase_anon()
@@ -223,7 +253,7 @@ def login_user():
     except Exception as e:
         err_msg = str(e)
         if 'invalid credentials' in err_msg.lower() or 'invalid login' in err_msg.lower() or 'invalid email' in err_msg.lower():
-            return jsonify({'error': 'Invalid email or password.'}), 401
+            return jsonify({'error': 'Invalid email address or password.'}), 401
         return jsonify({'error': f'Authentication failed: {err_msg}'}), 400
 
 def google_sub_to_uuid(user_id):
@@ -485,9 +515,22 @@ def forgot_password():
         return jsonify({'error': 'Email address is required.'}), 400
 
     try:
+        user = query_db("SELECT id, full_name FROM profiles WHERE email = ?", (email,), one=True)
+        if not user:
+            # Return generic success to prevent email enumeration
+            return jsonify({'message': 'If your email is registered, you will receive a password reset link shortly.'}), 200
+
         reset_code = str(uuid.uuid4().hex[:8]).upper()
+        reset_id = str(uuid.uuid4())
+        hashed_token = bcrypt.hashpw(reset_code.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        expires_at = (datetime.datetime.now() + datetime.timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+
+        execute_db(
+            "INSERT INTO password_resets (id, email, token_hash, expires_at, consumed) VALUES (?, ?, ?, ?, 0)",
+            (reset_id, email, hashed_token, expires_at)
+        )
+
         reset_link = f"{request.host_url}#/reset-password?email={email}&code={reset_code}"
-        
         success, res = send_forgot_password_email(email, reset_link=reset_link, reset_code=reset_code)
 
         if success:
@@ -498,6 +541,48 @@ def forgot_password():
             return jsonify({'error': f'Failed to send password reset email via Resend: {res}'}), 500
     except Exception as e:
         return jsonify({'error': f'Failed to process password reset email: {str(e)}'}), 400
+
+@auth_bp.route('/api/auth/reset-password', methods=['POST'])
+def reset_password():
+    """Reset password using secure token code."""
+    data = request.get_json() or {}
+    email = data.get('email', '').strip().lower()
+    code = data.get('code', '').strip().upper()
+    new_password = data.get('password', '') or data.get('new_password', '')
+
+    if not email or not code or not new_password:
+        return jsonify({'error': 'Email, verification code, and new password are required.'}), 400
+
+    if len(new_password) < 6:
+        return jsonify({'error': 'Password must be at least 6 characters long.'}), 400
+
+    # Find valid unconsumed reset token
+    records = query_db("""
+        SELECT * FROM password_resets 
+        WHERE email = ? AND consumed = 0 
+        ORDER BY created_at DESC
+    """, (email,))
+
+    valid_record = None
+    for r in records:
+        if bcrypt.checkpw(code.encode('utf-8'), r['token_hash'].encode('utf-8')):
+            valid_record = r
+            break
+
+    if not valid_record:
+        return jsonify({'error': 'Invalid or expired password reset code.'}), 400
+
+    # Check expiration
+    exp_time = datetime.datetime.strptime(valid_record['expires_at'], "%Y-%m-%d %H:%M:%S")
+    if datetime.datetime.now() > exp_time:
+        return jsonify({'error': 'Password reset token has expired. Please request a new link.'}), 400
+
+    # Hash new password & update
+    hashed_pwd = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    execute_db("UPDATE profiles SET password_hash = ? WHERE email = ?", (hashed_pwd, email))
+    execute_db("UPDATE password_resets SET consumed = 1 WHERE id = ?", (valid_record['id'],))
+
+    return jsonify({'message': 'Password has been reset successfully. You can now log in.'}), 200
 
 @auth_bp.route('/api/auth/test-email', methods=['POST'])
 def test_email_endpoint():

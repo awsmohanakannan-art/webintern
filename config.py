@@ -55,3 +55,32 @@ class Config:
 
     # DB Fallback Path
     SQLITE_DB_PATH = get_sqlite_db_path()
+
+    # Document Template & Storage Configuration
+    BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+    PUBLIC_DIR = os.path.join(BASE_DIR, "public")
+    TEMPLATE_DIR = os.path.join(PUBLIC_DIR, "templates")
+
+    OFFER_LETTER_TEMPLATE_PATH = os.path.join(TEMPLATE_DIR, "offer-letter-template.png")
+    CERTIFICATE_TEMPLATE_PATH = os.path.join(TEMPLATE_DIR, "certificate-template.png")
+
+    OFFER_LETTER_TEMPLATE_URL = "/templates/offer-letter-template.png"
+    CERTIFICATE_TEMPLATE_URL = "/templates/certificate-template.png"
+
+    STORAGE_DIR = os.path.join(BASE_DIR, "storage")
+    GENERATED_OFFERS_DIR = os.path.join(STORAGE_DIR, "generated", "offers")
+    GENERATED_CERTIFICATES_DIR = os.path.join(STORAGE_DIR, "generated", "certificates")
+
+    DOCUMENT_TEMPLATES = {
+        "offer_letter": {
+            "path": OFFER_LETTER_TEMPLATE_PATH,
+            "url": OFFER_LETTER_TEMPLATE_URL,
+            "filename": "offer-letter-template.png",
+        },
+        "certificate": {
+            "path": CERTIFICATE_TEMPLATE_PATH,
+            "url": CERTIFICATE_TEMPLATE_URL,
+            "filename": "certificate-template.png",
+        }
+    }
+

@@ -11,6 +11,93 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
+def ensure_migrations(cursor):
+    """Ensure all extended tables and columns exist without breaking existing databases."""
+    # Create password_resets table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS password_resets (
+            id VARCHAR(36) PRIMARY KEY,
+            email TEXT NOT NULL,
+            token_hash TEXT NOT NULL,
+            expires_at TIMESTAMP NOT NULL,
+            consumed BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # Create documents table for document management & status tracking
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS documents (
+            id VARCHAR(36) PRIMARY KEY,
+            application_id VARCHAR(36) NOT NULL,
+            student_id VARCHAR(36) NOT NULL,
+            document_type TEXT NOT NULL, -- 'OFFER_LETTER' or 'CERTIFICATE'
+            document_number TEXT UNIQUE NOT NULL,
+            file_path TEXT NOT NULL,
+            status TEXT DEFAULT 'ISSUED', -- DRAFT, GENERATED, ISSUED, REVOKED
+            email_status TEXT DEFAULT 'PENDING', -- PENDING, SENT, FAILED, RETRYING
+            email_message_id TEXT,
+            email_sent_at TIMESTAMP,
+            sheets_synced BOOLEAN DEFAULT FALSE,
+            sheets_synced_at TIMESTAMP,
+            sheets_error TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # Create audit_logs table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id VARCHAR(36) PRIMARY KEY,
+            user_id VARCHAR(36),
+            student_id VARCHAR(36),
+            document_id VARCHAR(36),
+            document_type TEXT,
+            action TEXT NOT NULL,
+            ip_address TEXT,
+            details TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    def _add_col(table, col_name, col_def):
+        cursor.execute(f"PRAGMA table_info({table})")
+        cols = [r[1] for r in cursor.fetchall()]
+        if col_name not in cols:
+            cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_def}")
+
+    # Profiles extensions
+    _add_col('profiles', 'password_hash', 'TEXT')
+    _add_col('profiles', 'auth_provider', "TEXT DEFAULT 'email'")
+    _add_col('profiles', 'mobile', 'TEXT')
+    _add_col('profiles', 'terms_accepted', 'BOOLEAN DEFAULT FALSE')
+
+    # Internships extensions
+    _add_col('internships', 'company_name', "TEXT DEFAULT 'Web Intern Platform'")
+    _add_col('internships', 'location', "TEXT DEFAULT 'Virtual / Remote'")
+    _add_col('internships', 'guide_name', "TEXT DEFAULT 'Dr. A. K. Sharma (Technical Director)'")
+    _add_col('internships', 'skills_tools', "TEXT DEFAULT 'Python, Web Development, Analytics, Cloud'")
+    _add_col('internships', 'tasks_projects', "TEXT DEFAULT 'Industry Capstone Project & Weekly Deliverables'")
+    _add_col('internships', 'project_name', "TEXT DEFAULT 'Enterprise Internship Project'")
+    _add_col('internships', 'certificate_eligible', 'BOOLEAN DEFAULT TRUE')
+    _add_col('internships', 'active', 'BOOLEAN DEFAULT TRUE')
+
+    # Applications / Enrollments extensions
+    _add_col('applications', 'start_date', 'TEXT')
+    _add_col('applications', 'end_date', 'TEXT')
+    _add_col('applications', 'offer_letter_id', 'TEXT')
+    _add_col('applications', 'certificate_id', 'TEXT')
+    _add_col('applications', 'completion_status', "TEXT DEFAULT 'pending'")
+
+    # Submissions extensions
+    _add_col('submissions', 'marks', 'REAL')
+    _add_col('submissions', 'max_marks', 'REAL DEFAULT 10')
+    _add_col('submissions', 'graded_by', 'TEXT')
+    _add_col('submissions', 'graded_at', 'TEXT')
+    _add_col('submissions', 'original_file_name', 'TEXT')
+    _add_col('submissions', 'file_size', 'INTEGER')
+
 def init_db():
     try:
         conn = get_db_connection()
@@ -26,6 +113,10 @@ def init_db():
                 with open(schema_path, "r", encoding="utf-8") as f:
                     cursor.executescript(f.read())
             conn.commit()
+
+        # Always ensure migrations
+        ensure_migrations(cursor)
+        conn.commit()
 
         # Always check if data is seeded (sectors table is empty), and seed if needed
         cursor.execute("SELECT COUNT(*) FROM sectors")
