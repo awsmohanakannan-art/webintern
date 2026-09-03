@@ -1,7 +1,10 @@
+import json
 import uuid
-from flask import Blueprint, request, jsonify, make_response
+import requests
+from flask import Blueprint, request, jsonify, make_response, render_template_string
 from database import query_db, execute_db
 from utils.auth import generate_jwt, check_password, jwt_required
+from utils.email_service import send_forgot_password_email, _dispatch_email
 from config import Config
 from supabase import create_client
 
@@ -27,7 +30,7 @@ def get_auth_config():
     return jsonify({
         'supabase_url': Config.SUPABASE_URL or DEFAULT_SUPABASE_URL,
         'supabase_anon_key': Config.SUPABASE_ANON_KEY or DEFAULT_SUPABASE_ANON,
-        'google_client_id': Config.GOOGLE_CLIENT_ID or "1013835320701-p74mrb7a14tjng226elmppqgko9mldvi.apps.googleusercontent.com"
+        'google_client_id': Config.GOOGLE_CLIENT_ID
     }), 200
 
 def sync_profile_to_local_db(user_id, full_name, email, phone="", phone_country_code="+91", marketing_opt_in=False):
@@ -223,6 +226,167 @@ def login_user():
             return jsonify({'error': 'Invalid email or password.'}), 401
         return jsonify({'error': f'Authentication failed: {err_msg}'}), 400
 
+def google_sub_to_uuid(user_id):
+    """Convert Google numeric/string ID to a deterministic UUID compatible with Supabase Postgres schema."""
+    try:
+        uuid.UUID(str(user_id))
+        return str(user_id)
+    except Exception:
+        return str(uuid.uuid5(uuid.NAMESPACE_URL, f"google:{user_id}"))
+
+def get_or_create_supabase_auth_user(supabase_admin, email, name):
+    """Ensure user exists in Supabase auth.users table to satisfy profiles foreign key constraint."""
+    try:
+        res = supabase_admin.auth.admin.create_user({
+            'email': email,
+            'email_confirm': True,
+            'user_metadata': {'name': name}
+        })
+        if res.user:
+            return str(res.user.id)
+    except Exception as e:
+        print(f"[Supabase Auth Admin Note]: {e}")
+
+    try:
+        users_list = supabase_admin.auth.admin.list_users()
+        for u in users_list:
+            if u.email and u.email.lower() == email.lower():
+                return str(u.id)
+    except Exception as e:
+        print(f"[Supabase Auth Admin List Users Warning]: {e}")
+
+    return google_sub_to_uuid(email)
+
+@auth_bp.route('/oauth2callback')
+@auth_bp.route('/api/auth/google/callback')
+def google_oauth_callback():
+    """Handle Google OAuth 2.0 redirect callback."""
+    code = request.args.get('code')
+    error = request.args.get('error')
+    
+    if error or not code:
+        err_msg = error or "Authorization code missing."
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head><title>Authentication Error</title></head>
+        <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+            <h2 style="color: #e53e3e;">Google Sign-In Failed</h2>
+            <p>{err_msg}</p>
+            <a href="/#/login" style="padding: 10px 20px; background: #0B3D91; color: white; border-radius: 5px; text-decoration: none;">Return to Sign In</a>
+        </body>
+        </html>
+        """
+        return render_template_string(html), 400
+
+    try:
+        token_url = "https://oauth2.googleapis.com/token"
+        redirect_uri = request.base_url
+        if redirect_uri.endswith('/api/auth/google/callback'):
+            redirect_uri = redirect_uri.replace('/api/auth/google/callback', '/oauth2callback')
+        
+        token_data = {
+            'code': code,
+            'client_id': Config.GOOGLE_CLIENT_ID,
+            'client_secret': Config.GOOGLE_CLIENT_SECRET,
+            'redirect_uri': redirect_uri,
+            'grant_type': 'authorization_code'
+        }
+        
+        token_res = requests.post(token_url, data=token_data, timeout=15)
+        token_json = token_res.json()
+        
+        access_token = token_json.get('access_token')
+        if not access_token:
+            raise Exception(token_json.get('error_description') or 'Failed to obtain access token from Google.')
+
+        userinfo_res = requests.get(
+            'https://www.googleapis.com/oauth2/v2/userinfo',
+            headers={'Authorization': f'Bearer {access_token}'},
+            timeout=15
+        )
+        userinfo = userinfo_res.json()
+        
+        raw_user_id = str(userinfo.get('id'))
+        email = userinfo.get('email', '').strip().lower()
+        name = userinfo.get('name', '').strip() or email.split('@')[0]
+
+        if not raw_user_id or not email:
+            raise Exception('Google profile did not return valid email address.')
+
+        supabase_admin = get_supabase_admin()
+        user_id = get_or_create_supabase_auth_user(supabase_admin, email, name)
+
+        prof_res = supabase_admin.table('profiles').select('*').eq('id', user_id).execute()
+        profile = prof_res.data[0] if (prof_res.data and len(prof_res.data) > 0) else None
+
+        if not profile:
+            profile = {
+                'id': user_id,
+                'name': name,
+                'email': email,
+                'mobile': '',
+                'phone_verified': True,
+                'auth_provider': 'google',
+                'terms_accepted': True,
+                'marketing_opt_in': False,
+                'profile_complete': True
+            }
+            safe_upsert_profile(supabase_admin, profile)
+            sync_profile_to_local_db(user_id, name, email)
+
+        app_token = generate_jwt({
+            'sub': profile['id'],
+            'email': email,
+            'name': name,
+            'role': 'student'
+        })
+
+        user_json = json.dumps({
+            'id': profile['id'],
+            'email': email,
+            'full_name': name,
+            'profile_complete': True,
+            'auth_provider': 'google',
+            'role': 'student'
+        })
+        token_json_str = json.dumps(app_token)
+
+        callback_html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Authentication Successful</title>
+            <script>
+                localStorage.setItem('access_token', {token_json_str});
+                localStorage.setItem('user_profile', {user_json});
+                window.location.href = '/#/dashboard';
+            </script>
+        </head>
+        <body style="font-family: sans-serif; text-align: center; padding-top: 100px;">
+            <h3 style="color: #0B3D91;">Google Authentication Successful!</h3>
+            <p>Redirecting to your dashboard...</p>
+        </body>
+        </html>
+        """
+        resp = make_response(render_template_string(callback_html))
+        resp.set_cookie('access_token', app_token, httponly=True, samesite='Lax', max_age=86400)
+        return resp
+    except Exception as e:
+        err_msg = str(e)
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head><title>OAuth Callback Error</title></head>
+        <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+            <h2 style="color: #e53e3e;">Authentication Error</h2>
+            <p>{err_msg}</p>
+            <a href="/#/login" style="padding: 10px 20px; background: #0B3D91; color: white; border-radius: 5px; text-decoration: none;">Return to Sign In</a>
+        </body>
+        </html>
+        """
+        return render_template_string(html), 400
+
 @auth_bp.route('/api/auth/google-sync', methods=['POST'])
 def sync_google_user():
     """Sync profile and handle provider linking for users logging in via Google OAuth."""
@@ -230,19 +394,44 @@ def sync_google_user():
     user_id = data.get('id')
     email = data.get('email', '').strip().lower()
     name = data.get('name', '').strip()
+    credential = data.get('credential')
+    access_token = data.get('access_token')
 
-    if not user_id or not email:
-        return jsonify({'error': 'User ID and email are required for Google auth sync.'}), 400
+    if credential and (not email or not user_id):
+        try:
+            res = requests.get(f'https://oauth2.googleapis.com/tokeninfo?id_token={credential}', timeout=10)
+            if res.status_code == 200:
+                tinfo = res.json()
+                user_id = str(tinfo.get('sub'))
+                email = tinfo.get('email', '').strip().lower()
+                name = tinfo.get('name', name) or email.split('@')[0]
+        except Exception as e:
+            print(f"[Google TokenInfo Error]: {e}")
+
+    if access_token and (not email or not user_id):
+        try:
+            res = requests.get('https://www.googleapis.com/oauth2/v2/userinfo', headers={'Authorization': f'Bearer {access_token}'}, timeout=10)
+            if res.status_code == 200:
+                uinfo = res.json()
+                user_id = str(uinfo.get('id'))
+                email = uinfo.get('email', '').strip().lower()
+                name = uinfo.get('name', name) or email.split('@')[0]
+        except Exception as e:
+            print(f"[Google UserInfo Error]: {e}")
+
+    if not email:
+        return jsonify({'error': 'Email is required for Google auth sync.'}), 400
 
     try:
         supabase_admin = get_supabase_admin()
+        user_uuid = get_or_create_supabase_auth_user(supabase_admin, email, name or email.split('@')[0])
         
-        prof_res = supabase_admin.table('profiles').select('*').eq('id', user_id).execute()
+        prof_res = supabase_admin.table('profiles').select('*').eq('id', user_uuid).execute()
         profile = prof_res.data[0] if (prof_res.data and len(prof_res.data) > 0) else None
 
         if not profile:
             new_profile = {
-                'id': user_id,
+                'id': user_uuid,
                 'name': name or email.split('@')[0],
                 'email': email,
                 'mobile': '',
@@ -254,10 +443,10 @@ def sync_google_user():
             }
             safe_upsert_profile(supabase_admin, new_profile)
             profile = new_profile
-            sync_profile_to_local_db(user_id, name or email.split('@')[0], email)
+            sync_profile_to_local_db(user_uuid, name or email.split('@')[0], email)
         else:
             if profile.get('auth_provider') == 'email':
-                supabase_admin.table('profiles').update({'auth_provider': 'both'}).eq('id', user_id).execute()
+                supabase_admin.table('profiles').update({'auth_provider': 'both'}).eq('id', user_uuid).execute()
                 profile['auth_provider'] = 'both'
 
         token = generate_jwt({
@@ -288,7 +477,7 @@ def sync_google_user():
 
 @auth_bp.route('/api/auth/forgot-password', methods=['POST'])
 def forgot_password():
-    """Trigger Supabase password reset email flow."""
+    """Trigger password reset email flow using Resend integration."""
     data = request.get_json() or {}
     email = data.get('email', '').strip().lower()
 
@@ -296,14 +485,43 @@ def forgot_password():
         return jsonify({'error': 'Email address is required.'}), 400
 
     try:
-        supabase_anon = get_supabase_anon()
-        supabase_anon.auth.reset_password_for_email(email)
+        reset_code = str(uuid.uuid4().hex[:8]).upper()
+        reset_link = f"{request.host_url}#/reset-password?email={email}&code={reset_code}"
+        
+        success, res = send_forgot_password_email(email, reset_link=reset_link, reset_code=reset_code)
 
-        return jsonify({
-            'message': 'If an account exists with this email address, a password reset link has been sent.'
-        }), 200
+        if success:
+            return jsonify({
+                'message': f'Password reset email sent to {email} successfully via Resend.'
+            }), 200
+        else:
+            return jsonify({'error': f'Failed to send password reset email via Resend: {res}'}), 500
     except Exception as e:
-        return jsonify({'error': f'Failed to send password reset email: {str(e)}'}), 400
+        return jsonify({'error': f'Failed to process password reset email: {str(e)}'}), 400
+
+@auth_bp.route('/api/auth/test-email', methods=['POST'])
+def test_email_endpoint():
+    """Endpoint to trigger and test email sending via Resend API."""
+    data = request.get_json() or {}
+    to_email = data.get('to_email', 'delivered@resend.dev').strip().lower()
+    subject = data.get('subject', 'Test Email from Web Intern')
+    content = data.get('content', 'This is a test email sent via Resend API key integration.')
+
+    html_content = f"""
+    <div style="font-family: 'Inter', Arial, sans-serif; padding: 24px; border: 1px solid #DCE6F5; border-radius: 12px; max-width: 500px; margin: 0 auto;">
+        <h2 style="color: #0B3D91; margin-top: 0;">web<span style="color: #2E7DFF;">intern</span></h2>
+        <h3 style="color: #082B66;">{subject}</h3>
+        <p style="color: #4B5563; line-height: 1.6;">{content}</p>
+        <hr style="border: none; border-top: 1px solid #DCE6F5; margin: 20px 0;" />
+        <p style="color: #9CA3AF; font-size: 12px; text-align: center;">Verified Resend Integration Test • Web Intern</p>
+    </div>
+    """
+    
+    success, result = _dispatch_email(to_email, subject, html_content)
+    if success:
+        return jsonify({'message': f'Email sent successfully to {to_email}', 'result': result}), 200
+    else:
+        return jsonify({'error': f'Email sending failed: {result}'}), 500
 
 @auth_bp.route('/api/auth/admin/login', methods=['POST'])
 def admin_login():

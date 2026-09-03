@@ -1,8 +1,81 @@
-import resend
+import base64
+import requests
 from config import Config
 
-if Config.RESEND_API_KEY and not Config.RESEND_API_KEY.startswith("re_demo"):
-    resend.api_key = Config.RESEND_API_KEY
+def _get_resend_key():
+    return (Config.RESEND_API_KEY or "").strip()
+
+def _dispatch_email(to_email, subject, html_content, attachments=None):
+    api_key = _get_resend_key()
+    if api_key and not api_key.startswith("re_demo"):
+        url = "https://api.resend.com/emails"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "from": "Web Intern <notifications@webintern.in>",
+            "to": [to_email] if isinstance(to_email, str) else to_email,
+            "subject": subject,
+            "html": html_content
+        }
+        
+        if attachments:
+            payload["attachments"] = attachments
+            
+        try:
+            res = requests.post(url, headers=headers, json=payload, timeout=15)
+            if res.status_code in [200, 201]:
+                data = res.json()
+                print(f"[Resend Email Success]: Sent to {to_email}, ID: {data.get('id')}")
+                return True, data
+            else:
+                err_body = res.text
+                print(f"[Resend Email Error HTTP {res.status_code}]: {err_body}")
+                return False, f"Resend API error ({res.status_code}): {err_body}"
+        except Exception as e:
+            print(f"[Resend Email Exception]: {e}")
+            return False, str(e)
+    else:
+        print(f"\n================ [MOCK EMAIL DISPATCH] ================")
+        print(f"TO: {to_email}")
+        print(f"SUBJECT: {subject}")
+        print(f"=======================================================\n")
+        return True, "Mock email logged to console"
+
+def send_forgot_password_email(to_email, reset_link=None, reset_code=None):
+    subject = "Web Intern - Password Reset Request"
+    if not reset_link:
+        reset_link = "https://webintern.in/#/reset-password"
+    
+    code_html = f"""
+        <div style="text-align: center; margin: 24px 0;">
+            <span style="font-size: 28px; font-weight: 700; letter-spacing: 4px; color: #0B3D91; background: #EAF1FB; padding: 12px 24px; border-radius: 8px; display: inline-block;">
+                {reset_code}
+            </span>
+        </div>
+    """ if reset_code else ""
+
+    html_content = f"""
+    <div style="font-family: 'Inter', Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 24px; border: 1px solid #DCE6F5; border-radius: 12px; background-color: #FFFFFF;">
+        <div style="text-align: center; margin-bottom: 20px;">
+            <h2 style="color: #0B3D91; margin: 0; font-size: 24px;">web<span style="color: #2E7DFF;">intern</span></h2>
+            <p style="color: #4B5563; font-size: 14px; margin-top: 4px;">Virtual Internship Platform</p>
+        </div>
+        <hr style="border: none; border-top: 1px solid #DCE6F5; margin: 20px 0;" />
+        <h3 style="color: #082B66; font-size: 18px; margin-bottom: 12px;">Password Reset Request</h3>
+        <p style="color: #4B5563; line-height: 1.5;">We received a request to reset your password for your Web Intern account.</p>
+        {code_html}
+        <div style="text-align: center; margin: 24px 0;">
+            <a href="{reset_link}" style="background-color: #0B3D91; color: #FFFFFF; text-decoration: none; padding: 12px 28px; border-radius: 24px; font-weight: 600; display: inline-block;">Reset Password →</a>
+        </div>
+        <p style="color: #4B5563; font-size: 13px;">If you did not request a password reset, you can safely ignore this email.</p>
+        <hr style="border: none; border-top: 1px solid #DCE6F5; margin: 20px 0;" />
+        <p style="color: #9CA3AF; font-size: 12px; text-align: center;">© 2026 Web Intern. Secure Automated Verification System.</p>
+    </div>
+    """
+    return _dispatch_email(to_email, subject, html_content)
 
 def send_otp_email(to_email, otp_code, purpose='login'):
     subject = f"Web Intern - Your Verification Code is {otp_code}"
@@ -25,7 +98,6 @@ def send_otp_email(to_email, otp_code, purpose='login'):
         <p style="color: #9CA3AF; font-size: 12px; text-align: center;">© 2026 Web Intern. Secure Automated Verification System.</p>
     </div>
     """
-    
     return _dispatch_email(to_email, subject, html_content)
 
 def send_offer_letter_email(to_email, student_name, internship_title, pdf_bytes=None):
@@ -39,12 +111,21 @@ def send_offer_letter_email(to_email, student_name, internship_title, pdf_bytes=
         <p style="color: #4B5563; line-height: 1.6;">We are thrilled to accept your application for the <strong>{internship_title}</strong> at Web Intern.</p>
         <p style="color: #4B5563; line-height: 1.6;">Your 4-week virtual internship program is now active on your student dashboard. Access your weekly tasks, submit deliverables, and track your progress live.</p>
         <div style="text-align: center; margin: 24px 0;">
-            <a href="http://localhost:5000/#/dashboard" style="background-color: #0B3D91; color: #FFFFFF; text-decoration: none; padding: 12px 28px; border-radius: 24px; font-weight: 600; display: inline-block;">Go to Student Dashboard →</a>
+            <a href="https://webintern.in/#/dashboard" style="background-color: #0B3D91; color: #FFFFFF; text-decoration: none; padding: 12px 28px; border-radius: 24px; font-weight: 600; display: inline-block;">Go to Student Dashboard →</a>
         </div>
-        <p style="color: #4B5563; font-size: 13px;">Your official Internship Offer Letter is generated and available in your portal.</p>
+        <p style="color: #4B5563; font-size: 13px;">Your official Internship Offer Letter is attached and available in your portal.</p>
     </div>
     """
-    return _dispatch_email(to_email, subject, html_content)
+    
+    attachments = None
+    if pdf_bytes:
+        encoded_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
+        attachments = [{
+            "filename": f"Offer_Letter_{student_name.replace(' ', '_')}.pdf",
+            "content": encoded_pdf
+        }]
+
+    return _dispatch_email(to_email, subject, html_content, attachments=attachments)
 
 def send_feedback_email(to_email, student_name, week_number, status, feedback_text):
     status_color = "#10B981" if status == "approved" else "#F59E0B"
@@ -73,24 +154,3 @@ def send_welcome_newsletter(to_email):
     </div>
     """
     return _dispatch_email(to_email, subject, html_content)
-
-def _dispatch_email(to_email, subject, html_content):
-    if Config.RESEND_API_KEY and not Config.RESEND_API_KEY.startswith("re_demo"):
-        try:
-            params = {
-                "from": "Web Intern <notifications@webintern.com>",
-                "to": [to_email],
-                "subject": subject,
-                "html": html_content,
-            }
-            email_res = resend.Emails.send(params)
-            return True, email_res
-        except Exception as e:
-            print(f"[Resend Email Error]: {e}")
-            return False, str(e)
-    else:
-        print(f"\n================ [MOCK EMAIL DISPATCH] ================")
-        print(f"TO: {to_email}")
-        print(f"SUBJECT: {subject}")
-        print(f"=======================================================\n")
-        return True, "Mock email logged to console"

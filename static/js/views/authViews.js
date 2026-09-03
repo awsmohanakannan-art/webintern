@@ -290,21 +290,62 @@ const AuthViews = {
     const googleBtn = document.getElementById('google-signin-btn');
     googleBtn?.addEventListener('click', async () => {
       try {
-        const supabase = await API.getSupabase();
-        if (!supabase) {
-          Toast.show('Supabase authentication client not configured.', 'error');
+        const authConfig = await API.request('/api/auth/config');
+        const clientId = authConfig.google_client_id;
+        
+        if (!clientId) {
+          Toast.show('Google Client ID is not configured.', 'error');
+          return;
+        }
+        
+        // Option A: Official Google Identity Services Popup (GIS Token Client)
+        if (window.google?.accounts?.oauth2) {
+          const client = window.google.accounts.oauth2.initTokenClient({
+            client_id: clientId,
+            scope: 'https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
+            callback: async (tokenResponse) => {
+              if (tokenResponse.error) {
+                Toast.show(`Google login cancelled: ${tokenResponse.error}`, 'error');
+                return;
+              }
+              try {
+                Toast.show('Authenticating with Google...', 'info');
+                const res = await API.request('/api/auth/google-sync', {
+                  method: 'POST',
+                  body: { access_token: tokenResponse.access_token }
+                });
+
+                API.setAuthToken(res.token);
+                API.setCurrentUser(res.user);
+                HeaderComponent.updateAuthState();
+
+                Toast.show('Signed in with Google successfully!', 'success');
+                window.location.hash = '#/dashboard';
+              } catch (err) {
+                Toast.show(err.message || 'Google authentication failed.', 'error');
+              }
+            }
+          });
+          client.requestAccessToken();
           return;
         }
 
-        const redirectUrl = window.location.origin + '/#/';
-        const { error } = await supabase.auth.signInWithOAuth({
-          provider: 'google',
-          options: {
-            redirectTo: redirectUrl
-          }
-        });
+        // Option B: Supabase OAuth if initialized
+        const supabase = await API.getSupabase();
+        if (supabase) {
+          const redirectUrl = window.location.origin + '/#/';
+          const { error } = await supabase.auth.signInWithOAuth({
+            provider: 'google',
+            options: { redirectTo: redirectUrl }
+          });
+          if (!error) return;
+        }
 
-        if (error) throw error;
+        // Option C: Standard Google OAuth Redirect
+        const redirectUri = encodeURIComponent(window.location.origin + '/oauth2callback');
+        const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=openid%20email%20profile`;
+        window.location.href = googleAuthUrl;
+
       } catch (err) {
         Toast.show(`Google Sign-In error: ${err.message}`, 'error');
       }
@@ -345,7 +386,7 @@ const AuthViews = {
     if (!email || !email.trim()) return;
 
     try {
-      Toast.show('Sending password reset email...', 'info');
+      Toast.show('Sending password reset email via Resend...', 'info');
       const res = await API.request('/api/auth/forgot-password', {
         method: 'POST',
         body: { email: email.trim() }
